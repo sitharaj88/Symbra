@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: Pet API
+paths:
+  /pets:
+    get:
+      summary: List all pets.
+      operationId: listPets
+      tags: [pets]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+    post:
+      operationId: createPet
+      responses:
+        '201':
+          description: created
+  /pets/{id}:
+    get:
+      operationId: getPet
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    Pet:
+      description: A pet.
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        owner:
+          $ref: '#/components/schemas/Owner'
+    Owner:
+      type: object
+      properties:
+        id:
+          type: integer

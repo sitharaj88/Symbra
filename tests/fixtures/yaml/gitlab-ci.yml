@@ -1,0 +1,20 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  IMAGE_TAG: latest
+
+# Compile the project.
+build:
+  stage: build
+  image: node:20
+  script:
+    - npm ci
+    - npm run build --token $NPM_TOKEN
+
+deploy:
+  stage: deploy
+  needs: [build]
+  script:
+    - ./deploy.sh

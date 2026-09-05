@@ -1,0 +1,14 @@
+{
+  "_comment": "Repository name -> root directory holding .symbra/index.db. Edit for your machine; relative paths resolve against this file's directory.",
+  "httpx": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/httpx",
+  "express": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/express",
+  "gin": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/gin",
+  "gson": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/gson",
+  "moshi": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/moshi",
+  "MediatR": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/MediatR",
+  "Slim": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/Slim",
+  "sinatra": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/sinatra",
+  "bytes": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/bytes",
+  "fmt": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/fmt",
+  "Alamofire": "/private/tmp/claude-501/-Users-sitharaj-Documents-code-graph/0045b5f9-3759-456e-b508-baf5d57598be/scratchpad/Alamofire"
+}

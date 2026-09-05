@@ -1,0 +1,43 @@
+# Grammar licenses
+
+All vendored grammars are MIT licensed by their respective authors.
+
+- python: tree-sitter-python@0.25.0
+- javascript: tree-sitter-javascript@0.25.0
+- typescript: tree-sitter-typescript@0.23.2
+- tsx: tree-sitter-typescript@0.23.2
+- go: tree-sitter-go@0.25.0
+- rust: tree-sitter-rust@0.24.0
+- java: tree-sitter-java@0.23.5
+- c_sharp: tree-sitter-c-sharp@0.23.5
+- ruby: tree-sitter-ruby@0.23.1
+- php: tree-sitter-php@0.24.2
+- c: tree-sitter-c@0.24.1
+- cpp: tree-sitter-cpp@0.23.4
+- scala: tree-sitter-scala@0.24.0
+- bash: tree-sitter-bash@0.25.1
+- dart: tree-sitter-dart@1.0.0
+- elixir: tree-sitter-elixir@0.3.5
+- json: tree-sitter-json@0.24.8
+- css: tree-sitter-css@0.25.0
+- html: tree-sitter-html@0.23.2
+- hcl: @tree-sitter-grammars/tree-sitter-hcl@1.2.0
+- terraform: @tree-sitter-grammars/tree-sitter-hcl@1.2.0
+- objc: tree-sitter-objc@3.0.2
+- groovy: tree-sitter-groovy@0.1.2
+- powershell: tree-sitter-powershell@0.26.4
+- haskell: tree-sitter-haskell@0.23.1
+- ocaml: tree-sitter-ocaml@0.24.2
+- ocaml_interface: tree-sitter-ocaml@0.24.2
+- fsharp: tree-sitter-fsharp@0.3.11
+- julia: tree-sitter-julia@0.23.1
+- solidity: tree-sitter-solidity@1.2.13
+- svelte: tree-sitter-svelte@0.11.0
+- make: tree-sitter-make@1.1.1
+- kotlin: tree-sitter-wasms@0.1.13
+- swift: tree-sitter-wasms@0.1.13
+- lua: tree-sitter-wasms@0.1.13
+- zig: tree-sitter-wasms@0.1.13
+- yaml: tree-sitter-wasms@0.1.13
+- toml: tree-sitter-wasms@0.1.13
+- vue: tree-sitter-wasms@0.1.13

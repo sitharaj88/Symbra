@@ -1,0 +1,22 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.1.0'
+}
+
+apply plugin: 'groovy'
+
+dependencies {
+    implementation 'com.google.guava:guava:31.1-jre'
+    implementation project(':core')
+    api(project(':shared'))
+    testImplementation group: 'junit', name: 'junit', version: '4.13'
+    // a comment line is ignored
+}
+
+task buildDocs {
+    dependsOn 'compileJava'
+}
+
+tasks.register('publishDocs') {
+    dependsOn 'buildDocs'
+}

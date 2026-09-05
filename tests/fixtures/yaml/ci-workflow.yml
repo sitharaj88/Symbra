@@ -1,0 +1,34 @@
+# Continuous integration for the service.
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Compile and unit-test.
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Test
+        run: |
+          npm ci
+          npm test --token ${{ secrets.NPM_TOKEN }}
+      - name: Publish
+        run: echo "$RELEASE_CHANNEL"
+
+  deploy:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./deploy.sh ${{ secrets.DEPLOY_KEY }}

@@ -1,0 +1,73 @@
+{
+  "name": "symbra",
+  "version": "1.0.0",
+  "description": "Local-first, live code intelligence for AI coding agents. Weaves your codebase into a queryable symbol graph (SQLite + tree-sitter, zero native deps, zero LLM) and serves it over MCP.",
+  "license": "Apache-2.0",
+  "author": "Sitharaj Seenivasan <sitharaj.info@gmail.com> (https://sitharaj.in)",
+  "type": "module",
+  "bin": {
+    "symbra": "./bin/symbra.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "grammars",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "node bench/run.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "grammars": "node scripts/fetch-grammars.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "code-intelligence",
+    "knowledge-graph",
+    "mcp",
+    "tree-sitter",
+    "claude-code",
+    "cursor",
+    "codex",
+    "ai-agents",
+    "call-graph",
+    "blast-radius",
+    "sqlite"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sitharaj88/symbra"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "commander": "^15.0.0",
+    "ignore": "^7.0.8",
+    "web-tree-sitter": "^0.25.10",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  }
+}

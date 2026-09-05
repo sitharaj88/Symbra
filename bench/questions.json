@@ -1,0 +1,1275 @@
+[
+  {
+    "repo": "httpx",
+    "question": "how does the sync client follow redirects and enforce max_redirects",
+    "gold": [
+      "httpx/_client.py::Client._send_handling_redirects"
+    ],
+    "kind": "explore",
+    "notes": "Client._send_handling_redirects loops on has_redirect_location, builds the next request via _build_redirect_request, and raises TooManyRedirects when len(history) > self.max_redirects. Easy: 'redirects' appears in the name."
+  },
+  {
+    "repo": "httpx",
+    "question": "what gets stripped from the request when a 302 points at a different domain",
+    "gold": [
+      "httpx/_client.py::BaseClient._redirect_headers"
+    ],
+    "kind": "explore",
+    "notes": "hard: BaseClient._redirect_headers pops Authorization when not _same_origin (unless plain http->https), rewrites Host, drops Content-Length/Transfer-Encoding on switch to GET, and drops Cookie. Question words (stripped, request, 302, domain) share nothing with 'redirect'/'headers'."
+  },
+  {
+    "repo": "httpx",
+    "question": "how do we pick the decompressor for a compressed response body",
+    "gold": [
+      "httpx/_models.py::Response._get_content_decoder",
+      "httpx/_decoders.py::SUPPORTED_DECODERS"
+    ],
+    "kind": "explore",
+    "notes": "hard: Response._get_content_decoder reads the content-encoding header list and looks each value up in SUPPORTED_DECODERS, wrapping multiple in MultiDecoder or falling back to IdentityDecoder. Question uses 'decompressor'/'compressed body', gold names use 'content'/'decoder'/'decoders' - no shared word."
+  },
+  {
+    "repo": "httpx",
+    "question": "where are Authorization and cookie values hidden when printing a request's headers",
+    "gold": [
+      "httpx/_models.py::_obfuscate_sensitive_headers",
+      "httpx/_models.py::Headers.__repr__"
+    ],
+    "kind": "explore",
+    "notes": "hard-ish: Headers.__repr__ runs multi_items() through _obfuscate_sensitive_headers, which replaces values whose key is in SENSITIVE_HEADERS with '[secure]'. The question shares 'headers' only with the helper name; the key verbs (obfuscate/sensitive) are absent."
+  },
+  {
+    "repo": "httpx",
+    "question": "how do we decide the mimetype of an uploaded file in a multipart form",
+    "gold": [
+      "httpx/_multipart.py::_guess_content_type",
+      "httpx/_multipart.py::FileField.__init__"
+    ],
+    "kind": "explore",
+    "notes": "hard: FileField.__init__ calls _guess_content_type(filename), which uses mimetypes.guess_type and defaults to application/octet-stream. Question words (decide, mimetype, uploaded, file, multipart, form) share no word with 'guess_content_type'."
+  },
+  {
+    "repo": "httpx",
+    "question": "which function reads HTTP_PROXY / NO_PROXY from the environment and turns them into mount patterns",
+    "gold": [
+      "httpx/_utils.py::get_environment_proxies"
+    ],
+    "kind": "explore",
+    "notes": "get_environment_proxies wraps urllib's getproxies(), keeps only http/https/all, and converts NO_PROXY entries into 'all://*host' mounts mapped to None. Easy: 'environment' and 'proxy' vocabulary overlap."
+  },
+  {
+    "repo": "httpx",
+    "question": "DigestAuth",
+    "gold": [
+      "httpx/_auth.py::DigestAuth"
+    ],
+    "kind": "search",
+    "notes": "Bare identifier search; the class in httpx/_auth.py should rank first over its methods and docs sections."
+  },
+  {
+    "repo": "httpx",
+    "question": "multipart boundary",
+    "gold": [
+      "httpx/_multipart.py::get_multipart_boundary_from_content_type",
+      "httpx/_multipart.py::MultipartStream"
+    ],
+    "kind": "search",
+    "notes": "Keyword search; get_multipart_boundary_from_content_type parses the boundary out of a Content-Type header and MultipartStream generates/uses the boundary when rendering."
+  },
+  {
+    "repo": "httpx",
+    "question": "who calls get_environment_proxies",
+    "gold": [
+      "httpx/_client.py::BaseClient._get_proxy_map"
+    ],
+    "kind": "callers",
+    "notes": "Target: httpx/_utils.py::get_environment_proxies. Sole production call site is BaseClient._get_proxy_map (httpx/_client.py:246) when proxy is None and allow_env_proxies is true."
+  },
+  {
+    "repo": "httpx",
+    "question": "what calls map_httpcore_exceptions",
+    "gold": [
+      "httpx/_transports/default.py::HTTPTransport.handle_request",
+      "httpx/_transports/default.py::AsyncHTTPTransport.handle_async_request",
+      "httpx/_transports/default.py::ResponseStream.__iter__"
+    ],
+    "kind": "callers",
+    "notes": "Target: httpx/_transports/default.py::map_httpcore_exceptions. Used as a context manager in HTTPTransport.handle_request (line 249), AsyncHTTPTransport.handle_async_request (line 393), ResponseStream.__iter__ (line 126) and several close/aiter methods."
+  },
+  {
+    "repo": "httpx",
+    "question": "blast radius of ContentDecoder",
+    "gold": [
+      "httpx/_decoders.py::GZipDecoder",
+      "httpx/_decoders.py::BrotliDecoder",
+      "httpx/_decoders.py::MultiDecoder"
+    ],
+    "kind": "impact",
+    "notes": "Target: httpx/_decoders.py::ContentDecoder. Direct subclasses IdentityDecoder, DeflateDecoder, GZipDecoder, BrotliDecoder, ZStandardDecoder and MultiDecoder all extend it and implement decode/flush; Response._get_content_decoder returns it."
+  },
+  {
+    "repo": "httpx",
+    "question": "how does Client.send reach HTTPTransport.handle_request",
+    "gold": [
+      "httpx/_client.py::Client._send_single_request",
+      "httpx/_client.py::Client._send_handling_redirects",
+      "httpx/_client.py::Client._send_handling_auth"
+    ],
+    "kind": "path",
+    "notes": "Chain verified in source: Client.send -> _send_handling_auth (line 914) -> _send_handling_redirects (line 942) -> _send_single_request (line 979) -> transport.handle_request(request) (line 1014) where transport comes from _transport_for_url."
+  },
+  {
+    "repo": "express",
+    "question": "how is the etag setting compiled into an ETag generating function",
+    "gold": [
+      "lib/utils.js::compileETag"
+    ],
+    "kind": "explore",
+    "notes": "app.set('etag', val) calls compileETag(val) which maps true/'weak'/'strong'/false to wetag/etag/undefined and stores it as 'etag fn'. Easy: name shares 'etag'."
+  },
+  {
+    "repo": "express",
+    "question": "where is the X-Powered-By header set on responses",
+    "gold": [
+      "lib/application.js::app.handle"
+    ],
+    "kind": "explore",
+    "notes": "hard: app.handle checks this.enabled('x-powered-by') and calls res.setHeader('X-Powered-By','Express') before dispatching to the router. Question words (header, powered, set, responses) share nothing with 'handle'."
+  },
+  {
+    "repo": "express",
+    "question": "what escapes JSON output so it can't trigger HTML sniffing in browsers",
+    "gold": [
+      "lib/response.js::stringify"
+    ],
+    "kind": "explore",
+    "notes": "hard: the private stringify() in response.js replaces <, >, & with \\u003c etc. when the 'json escape' setting is on; used by res.json and res.jsonp. No word overlap between question and 'stringify'."
+  },
+  {
+    "repo": "express",
+    "question": "how does sendFile handle the client aborting the transfer midway",
+    "gold": [
+      "lib/response.js::sendfile",
+      "lib/response.js::sendfile.onaborted",
+      "lib/response.js::sendfile.onfinish"
+    ],
+    "kind": "explore",
+    "notes": "The private sendfile() helper wires stream events; onfinish maps ECONNRESET and unfinished streaming to onaborted, which produces an Error with code ECONNABORTED that res.sendFile then swallows. Easy: 'sendFile' in question."
+  },
+  {
+    "repo": "express",
+    "question": "how does res.format pick which callback to run from the Accept header",
+    "gold": [
+      "lib/response.js::res.format"
+    ],
+    "kind": "explore",
+    "notes": "res.format filters out 'default', calls req.accepts(keys), sets Content-Type via normalizeType, invokes the matched callback or default, else next(createError(406)). Easy."
+  },
+  {
+    "repo": "express",
+    "question": "where are template engines loaded via require based on the file extension",
+    "gold": [
+      "lib/view.js::View"
+    ],
+    "kind": "explore",
+    "notes": "hard: the View constructor derives the extension from the name or defaultEngine, and if opts.engines[ext] is missing does require(mod).__express and caches it. 'View' does not appear in the question."
+  },
+  {
+    "repo": "express",
+    "question": "redirect",
+    "gold": [
+      "lib/response.js::res.redirect"
+    ],
+    "kind": "search",
+    "notes": "res.redirect is the only production symbol named redirect; res.location is a related helper it calls."
+  },
+  {
+    "repo": "express",
+    "question": "cookie",
+    "gold": [
+      "lib/response.js::res.cookie",
+      "lib/response.js::res.clearCookie"
+    ],
+    "kind": "search",
+    "notes": "res.cookie serializes/signs Set-Cookie; res.clearCookie delegates to it with expires=Date(1)."
+  },
+  {
+    "repo": "express",
+    "question": "what calls stringify",
+    "gold": [
+      "lib/response.js::res.json",
+      "lib/response.js::res.jsonp"
+    ],
+    "kind": "callers",
+    "notes": "Target lib/response.js::stringify. Verified call sites: response.js:240 (res.json) and response.js:268 (res.jsonp)."
+  },
+  {
+    "repo": "express",
+    "question": "who calls compileETag",
+    "gold": [
+      "lib/application.js::app.set"
+    ],
+    "kind": "callers",
+    "notes": "Target lib/utils.js::compileETag. Only production call site is application.js:365 inside app.set's switch on 'etag'."
+  },
+  {
+    "repo": "express",
+    "question": "what breaks if I change normalizeType",
+    "gold": [
+      "lib/response.js::res.format",
+      "lib/utils.js::normalizeTypes"
+    ],
+    "kind": "impact",
+    "notes": "Target lib/utils.js::normalizeType. res.format calls normalizeType(key).value (response.js:585); normalizeTypes maps over exports.normalizeType (utils.js:76) and is itself used by res.format for the 406 error."
+  },
+  {
+    "repo": "express",
+    "question": "how does createApplication reach app.defaultConfiguration",
+    "gold": [
+      "lib/application.js::app.init"
+    ],
+    "kind": "path",
+    "notes": "createApplication (express.js:54) calls app.init(); app.init (application.js:66) calls this.defaultConfiguration(). app.init is the single intermediate hop."
+  },
+  {
+    "repo": "gin",
+    "question": "how does the router match an incoming request URL to a registered handler in the radix tree",
+    "gold": [
+      "tree.go::node.getValue",
+      "gin.go::Engine.handleHTTPRequest"
+    ],
+    "kind": "explore",
+    "notes": "hard: tree lookup is node.getValue (tree.go:418) called from Engine.handleHTTPRequest; neither name shares a word with 'match/URL/handler/radix tree'."
+  },
+  {
+    "repo": "gin",
+    "question": "where do we figure out the real address a request came from when sitting behind a reverse proxy",
+    "gold": [
+      "context.go::Context.ClientIP",
+      "gin.go::Engine.validateHeader"
+    ],
+    "kind": "explore",
+    "notes": "hard: Context.ClientIP walks X-Forwarded-For via engine.validateHeader/isTrustedProxy; question avoids the words 'client' and 'IP'."
+  },
+  {
+    "repo": "gin",
+    "question": "how does gin choose which binding to use from the request method and content type",
+    "gold": [
+      "binding/binding.go::Default"
+    ],
+    "kind": "explore",
+    "notes": "hard: binding.Default(method, contentType) is the switch over MIME types returning Form/JSON/XML/...; the name 'Default' shares no word with the question."
+  },
+  {
+    "repo": "gin",
+    "question": "where is the JSON request body decoded, and where does DisallowUnknownFields get applied",
+    "gold": [
+      "binding/json.go::decodeJSON"
+    ],
+    "kind": "explore",
+    "notes": "decodeJSON builds the decoder, honours EnableDecoderUseNumber / EnableDecoderDisallowUnknownFields, then calls validate(obj)."
+  },
+  {
+    "repo": "gin",
+    "question": "how are form values mapped onto struct fields using the form tag",
+    "gold": [
+      "binding/form_mapping.go::mapFormByTag",
+      "binding/form_mapping.go::mapping"
+    ],
+    "kind": "explore",
+    "notes": "mapFormByTag is the entry (called by MapFormWithTag/mapForm/mapURI); the recursive per-field reflection work is in mapping()."
+  },
+  {
+    "repo": "gin",
+    "question": "how does gin serve static files from a directory and fall back to NoRoute when the file is missing",
+    "gold": [
+      "routergroup.go::RouterGroup.createStaticHandler",
+      "routergroup.go::RouterGroup.StaticFS"
+    ],
+    "kind": "explore",
+    "notes": "StaticFS registers GET/HEAD on '/*filepath' with the closure from createStaticHandler, which opens the file and on error sets c.handlers = engine.noRoute."
+  },
+  {
+    "repo": "gin",
+    "question": "where does the middleware that recovers from handler panics write the stack trace and return 500",
+    "gold": [
+      "recovery.go::CustomRecoveryWithWriter"
+    ],
+    "kind": "explore",
+    "notes": "All Recovery/CustomRecovery/RecoveryWithWriter variants delegate to CustomRecoveryWithWriter which defers the recover(), logs the stack and calls the RecoveryFunc."
+  },
+  {
+    "repo": "gin",
+    "question": "trusted proxies",
+    "gold": [
+      "gin.go::Engine.SetTrustedProxies",
+      "gin.go::Engine.isTrustedProxy"
+    ],
+    "kind": "search",
+    "notes": "Keyword query; SetTrustedProxies is the public configuration entry point, isTrustedProxy the check used by ClientIP."
+  },
+  {
+    "repo": "gin",
+    "question": "Header",
+    "gold": [
+      "context.go::Context.Header",
+      "context.go::Context.GetHeader"
+    ],
+    "kind": "search",
+    "notes": "Bare identifier; Context.Header (response header setter) should rank first, GetHeader (request header getter) close behind."
+  },
+  {
+    "repo": "gin",
+    "question": "who calls Context.requestHeader",
+    "gold": [
+      "context.go::Context.ClientIP",
+      "context.go::Context.ContentType",
+      "context.go::Context.GetHeader"
+    ],
+    "kind": "callers",
+    "notes": "target: context.go::Context.requestHeader. Verified in source: ClientIP (context.go:1002,1010), ContentType (1060), GetHeader (1140); IsWebsocket and auth.go BasicAuthForRealm also call it."
+  },
+  {
+    "repo": "gin",
+    "question": "what breaks if I change node.getValue",
+    "gold": [
+      "gin.go::Engine.handleHTTPRequest"
+    ],
+    "kind": "impact",
+    "notes": "target: tree.go::node.getValue. The only production caller is Engine.handleHTTPRequest (gin.go:715 for the route lookup and gin.go:746 for the 405 Allow computation)."
+  },
+  {
+    "repo": "gin",
+    "question": "how does Engine.ServeHTTP reach node.getValue",
+    "gold": [
+      "gin.go::Engine.handleHTTPRequest"
+    ],
+    "kind": "path",
+    "notes": "ServeHTTP (gin.go:662) pulls a Context from the pool, resets it, and calls engine.handleHTTPRequest(c), which does root.getValue(rPath, ...) at gin.go:715."
+  },
+  {
+    "repo": "gson",
+    "question": "how does Gson handle recursive/self-referencing types when looking up a type adapter",
+    "gold": [
+      "gson/src/main/java/com/google/gson/Gson.java::Gson.getAdapter",
+      "gson/src/main/java/com/google/gson/Gson.java::Gson.FutureTypeAdapter"
+    ],
+    "kind": "explore",
+    "notes": "Gson.getAdapter (Gson.java:340-399) installs a FutureTypeAdapter placeholder in threadLocalAdapterResults while a factory is being resolved, so a factory that re-enters getAdapter for the same type gets the proxy; setDelegate wires it up afterwards."
+  },
+  {
+    "repo": "gson",
+    "question": "which method decides whether a Java property is skipped during serialization",
+    "gold": [
+      "gson/src/main/java/com/google/gson/internal/Excluder.java::Excluder.excludeField"
+    ],
+    "kind": "explore",
+    "notes": "hard: gold name 'excludeField' shares no word with the question (skipped/property vs exclude/field). Excluder.excludeField combines modifier, @Since/@Until version, synthetic, @Expose, class exclusion and ExclusionStrategy checks."
+  },
+  {
+    "repo": "gson",
+    "question": "how are < > & = ' turned into unicode escapes in the output",
+    "gold": [
+      "gson/src/main/java/com/google/gson/stream/JsonWriter.java::JsonWriter.string",
+      "gson/src/main/java/com/google/gson/stream/JsonWriter.java::JsonWriter.HTML_SAFE_REPLACEMENT_CHARS"
+    ],
+    "kind": "explore",
+    "notes": "hard: the private JsonWriter.string(String) picks HTML_SAFE_REPLACEMENT_CHARS when htmlSafe is set and writes \\uXXXX for those characters; no word of the question appears in either symbol name."
+  },
+  {
+    "repo": "gson",
+    "question": "how do @Since and @Until get enforced",
+    "gold": [
+      "gson/src/main/java/com/google/gson/internal/Excluder.java::Excluder.isValidVersion"
+    ],
+    "kind": "explore",
+    "notes": "hard: Excluder.isValidVersion(Since, Until) (called from isExcludedByVersion / excludeClass) compares the annotation values against the configured version; question vocabulary (Since/Until/enforced) shares nothing with 'isValidVersion'."
+  },
+  {
+    "repo": "gson",
+    "question": "how does Gson use sun.misc.Unsafe to instantiate classes without a no-args constructor",
+    "gold": [
+      "gson/src/main/java/com/google/gson/internal/UnsafeAllocator.java::UnsafeAllocator.create",
+      "gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java::ConstructorConstructor.newUnsafeAllocator"
+    ],
+    "kind": "explore",
+    "notes": "UnsafeAllocator.create() reflectively locates sun.misc.Unsafe.allocateInstance (with ObjectStreamClass/ObjectInputStream fallbacks); ConstructorConstructor.newUnsafeAllocator wraps it as an ObjectConstructor when no default constructor or InstanceCreator applies."
+  },
+  {
+    "repo": "gson",
+    "question": "how does Gson serialize a Map whose keys are not primitives/strings",
+    "gold": [
+      "gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java::MapTypeAdapterFactory.Adapter.write"
+    ],
+    "kind": "explore",
+    "notes": "MapTypeAdapterFactory.Adapter.write checks complexMapKeySerialization; when enabled and any key serializes to a non-primitive JsonElement it emits an array of [key, value] pairs, otherwise it uses String.valueOf(key) as the property name."
+  },
+  {
+    "repo": "gson",
+    "question": "JsonAdapter annotation",
+    "gold": [
+      "gson/src/main/java/com/google/gson/annotations/JsonAdapter.java::JsonAdapter",
+      "gson/src/main/java/com/google/gson/internal/bind/JsonAdapterAnnotationTypeAdapterFactory.java::JsonAdapterAnnotationTypeAdapterFactory"
+    ],
+    "kind": "search",
+    "notes": "The @JsonAdapter annotation type itself and the factory that honours it on classes/fields should rank first for this identifier query."
+  },
+  {
+    "repo": "gson",
+    "question": "Strictness",
+    "gold": [
+      "gson/src/main/java/com/google/gson/Strictness.java::Strictness",
+      "gson/src/main/java/com/google/gson/GsonBuilder.java::GsonBuilder.setStrictness",
+      "gson/src/main/java/com/google/gson/stream/JsonReader.java::JsonReader.setStrictness"
+    ],
+    "kind": "search",
+    "notes": "The Strictness enum (LENIENT/LEGACY_STRICT/STRICT) is the exact-name match; the builder and reader setters are the primary configuration points."
+  },
+  {
+    "repo": "gson",
+    "question": "who calls Streams.parse",
+    "gold": [
+      "gson/src/main/java/com/google/gson/JsonParser.java::JsonParser.parseReader#2",
+      "gson/src/main/java/com/google/gson/JsonStreamParser.java::JsonStreamParser.next",
+      "gson/src/main/java/com/google/gson/internal/bind/TreeTypeAdapter.java::TreeTypeAdapter.read"
+    ],
+    "kind": "callers",
+    "notes": "target: gson/src/main/java/com/google/gson/internal/Streams.java::Streams.parse. Grep shows call sites at JsonParser.java:144 (parseReader(JsonReader)), JsonStreamParser.java:89 and TreeTypeAdapter.java:91."
+  },
+  {
+    "repo": "gson",
+    "question": "what breaks if I change ConstructorConstructor.get",
+    "gold": [
+      "gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java::ReflectiveTypeAdapterFactory.create",
+      "gson/src/main/java/com/google/gson/internal/bind/CollectionTypeAdapterFactory.java::CollectionTypeAdapterFactory.create",
+      "gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java::MapTypeAdapterFactory.create"
+    ],
+    "kind": "impact",
+    "notes": "target: gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java::ConstructorConstructor.get#2 (the (TypeToken, boolean) overload). Direct production callers verified by grep: ReflectiveTypeAdapterFactory.java:163, CollectionTypeAdapterFactory.java:57, MapTypeAdapterFactory.java:146 (also JsonAdapterAnnotationTypeAdapterFactory.createAdapter:96)."
+  },
+  {
+    "repo": "gson",
+    "question": "how does JsonParser reach Streams.parse",
+    "gold": [
+      "gson/src/main/java/com/google/gson/JsonParser.java::JsonParser.parseReader#2",
+      "gson/src/main/java/com/google/gson/JsonParser.java::JsonParser.parseReader"
+    ],
+    "kind": "path",
+    "notes": "JsonParser.parseString/parseReader(Reader) build a JsonReader and delegate to parseReader(JsonReader) (JsonParser.java:136-150), which temporarily sets LENIENT strictness and calls Streams.parse(reader) at line 144."
+  },
+  {
+    "repo": "gson",
+    "question": "where does @SerializedName get read to pick the JSON property name and alternates for a field",
+    "gold": [
+      "gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java::ReflectiveTypeAdapterFactory.getFieldNames"
+    ],
+    "kind": "explore",
+    "notes": "ReflectiveTypeAdapterFactory.getFieldNames(Field) (line 86) reads the SerializedName annotation, falling back to the FieldNamingStrategy, and returns the primary name plus alternate names used by getBoundFields."
+  },
+  {
+    "repo": "moshi",
+    "question": "how does Moshi look up or build a JsonAdapter for a type (cache check, then asking each factory)",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/Moshi.kt::Moshi.adapter#8"
+    ],
+    "kind": "explore",
+    "notes": "The 3-arg Moshi.adapter(type, annotations, fieldName) at Moshi.kt:125-168 canonicalizes the type, checks adapterCache, pushes onto the LookupChain, then iterates factories[i].create(...) and throws 'No JsonAdapter for ...' if none match. All other adapter() overloads delegate here."
+  },
+  {
+    "repo": "moshi",
+    "question": "how are self-referencing types kept from recursing forever during adapter creation",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/Moshi.kt::Moshi.LookupChain",
+      "moshi/src/main/java/com/squareup/moshi/Moshi.kt::Moshi.LookupChain.push"
+    ],
+    "kind": "explore",
+    "notes": "hard: gold is the private inner class LookupChain (Moshi.kt:271-346) and its push() which returns a re-entrant Lookup stub when the same cacheKey is already on the stack, deferring caching until the topmost adapter is built. Question uses 'self-referencing/recursing/adapter creation'; symbol name is LookupChain/push -- no shared words."
+  },
+  {
+    "repo": "moshi",
+    "question": "where are backslash sequences inside JSON strings decoded",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/-JsonUtf8Reader.kt::`-JsonUtf8Reader`.readEscapeCharacter"
+    ],
+    "kind": "explore",
+    "notes": "hard: -JsonUtf8Reader.readEscapeCharacter (lines 1160-1207) handles \\uXXXX, \\t, \\b, \\n, \\r, \\f, \\', \\\", \\\\, \\/ and throws syntaxError for invalid escapes; called from nextQuotedValue and skipQuotedValue. Question says 'backslash sequences'; symbol says 'Escape Character'."
+  },
+  {
+    "repo": "moshi",
+    "question": "how does Moshi locate the code-generated adapter class for a @JsonClass type at runtime",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/internal/Util.kt::generatedAdapter"
+    ],
+    "kind": "explore",
+    "notes": "Util.kt top-level extension Moshi.generatedAdapter(type, rawType) (lines 454-513) reads the @JsonClass annotation, computes Types.generatedJsonAdapterName, Class.forName()s it, picks the (Moshi[, Type[]]) constructor and instantiates it; wraps failures with descriptive RuntimeExceptions."
+  },
+  {
+    "repo": "moshi",
+    "question": "which fields does the reflective ClassJsonAdapter skip, e.g. static or transient ones",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/internal/ClassJsonAdapter.kt::ClassJsonAdapter.Factory.includeField",
+      "moshi/src/main/java/com/squareup/moshi/internal/ClassJsonAdapter.kt::ClassJsonAdapter.Factory.createFieldBindings"
+    ],
+    "kind": "explore",
+    "notes": "includeField (ClassJsonAdapter.kt:206-212) returns false for static/transient and, for platform types, non-public/non-protected fields; createFieldBindings (175-203) walks the class hierarchy applying it and also skips @Transient-annotated fields and detects conflicting JSON names."
+  },
+  {
+    "repo": "moshi",
+    "question": "how is the concrete subclass chosen from a discriminator key when decoding",
+    "gold": [
+      "moshi-adapters/src/main/java/com/squareup/moshi/adapters/PolymorphicJsonAdapterFactory.kt::PolymorphicJsonAdapter.labelIndex",
+      "moshi-adapters/src/main/java/com/squareup/moshi/adapters/PolymorphicJsonAdapterFactory.kt::PolymorphicJsonAdapter"
+    ],
+    "kind": "explore",
+    "notes": "hard: PolymorphicJsonAdapter.fromJson peeks the object via peekJson() and calls labelIndex() (lines 203-223), which scans for the labelKey with selectName, then selectString against the registered labels to pick the subtype adapter index (or -1 for fallback). Question uses 'discriminator key/subclass'; code says 'label/subtype/polymorphic'."
+  },
+  {
+    "repo": "moshi",
+    "question": "Rfc3339 date adapter",
+    "gold": [
+      "moshi-adapters/src/main/java/com/squareup/moshi/adapters/Rfc3339DateJsonAdapter.kt::Rfc3339DateJsonAdapter",
+      "moshi-adapters/src/main/java/com/squareup/moshi/Rfc3339DateJsonAdapter.kt::Rfc3339DateJsonAdapter"
+    ],
+    "kind": "search",
+    "notes": "The adapters-package Rfc3339DateJsonAdapter (moshi-adapters/.../adapters/Rfc3339DateJsonAdapter.kt:35-57) is the real implementation using Iso8601Utils; the com.squareup.moshi one (22-41) is the deprecated delegating shim. Both should rank at the top."
+  },
+  {
+    "repo": "moshi",
+    "question": "generatedJsonAdapterName",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/Types.kt::Types.generatedJsonAdapterName",
+      "moshi/src/main/java/com/squareup/moshi/Types.kt::Types.generatedJsonAdapterName#2"
+    ],
+    "kind": "search",
+    "notes": "Two overloads on the Types object (Types.kt:48-54 taking Class<*>, and 66-69 taking a String) that compute the '<Name>JsonAdapter' class name with '$' replaced by '_'. Exact identifier query; both overloads are the answer."
+  },
+  {
+    "repo": "moshi",
+    "question": "what calls generatedAdapter",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/internal/StandardJsonAdapters.kt::StandardJsonAdapters.create",
+      "moshi-kotlin/src/main/java/com/squareup/moshi/kotlin/reflect/KotlinJsonAdapterFactory.kt::KotlinJsonAdapterFactory.create"
+    ],
+    "kind": "callers",
+    "notes": "Target: moshi/src/main/java/com/squareup/moshi/internal/Util.kt::generatedAdapter. Verified by grep: StandardJsonAdapters.kt:51 `moshi.generatedAdapter(type, rawType)` inside create(); KotlinJsonAdapterFactory.kt:224 same call inside KotlinJsonAdapterFactory.create(). Both are production, non-test."
+  },
+  {
+    "repo": "moshi",
+    "question": "who calls missingProperty",
+    "gold": [
+      "moshi-kotlin/src/main/java/com/squareup/moshi/kotlin/reflect/KotlinJsonAdapterFactory.kt::KotlinJsonAdapter.fromJson",
+      "moshi/src/main/java16/com/squareup/moshi/internal/RecordJsonAdapter.kt::RecordJsonAdapter.fromJson"
+    ],
+    "kind": "callers",
+    "notes": "Target: moshi/src/main/java/com/squareup/moshi/internal/Util.kt::missingProperty. Verified by grep: KotlinJsonAdapterFactory.kt:104 `throw missingProperty(constructor.parameters[i].name, ...)` inside KotlinJsonAdapter.fromJson (70-122); java16 RecordJsonAdapter.kt:79 `throw missingProperty(propertyName = ...)` inside RecordJsonAdapter.fromJson (52-88)."
+  },
+  {
+    "repo": "moshi",
+    "question": "what breaks if I change JsonValueSource",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/-JsonUtf8Reader.kt::`-JsonUtf8Reader`.nextSource"
+    ],
+    "kind": "impact",
+    "notes": "Target: moshi/src/main/java/com/squareup/moshi/internal/JsonValueSource.kt::JsonValueSource. The only production dependent is -JsonUtf8Reader.nextSource (996-1051), which at line 1047 constructs `JsonValueSource(source, prefix, state, valueSourceStackSize)` to stream a nested JSON value; the reader also holds it in its valueSource field (line 57)."
+  },
+  {
+    "repo": "moshi",
+    "question": "how does Moshi.Builder reach AdapterMethodsFactory",
+    "gold": [
+      "moshi/src/main/java/com/squareup/moshi/Moshi.kt::Moshi.Builder.add#5",
+      "moshi/src/main/java/com/squareup/moshi/Moshi.kt::Moshi.Builder.addLast#4"
+    ],
+    "kind": "path",
+    "notes": "Moshi.Builder.add(adapter: Any) at Moshi.kt:231 does `add(AdapterMethodsFactory(adapter))` and addLast(adapter: Any) at line 248 does `addLast(AdapterMethodsFactory(adapter))`; these are the one-hop members of Builder that instantiate AdapterMethodsFactory (via its Companion.invoke) to wrap @ToJson/@FromJson methods."
+  },
+  {
+    "repo": "MediatR",
+    "question": "how is the pipeline behavior chain composed around the request handler when a request is sent",
+    "gold": [
+      "src/MediatR/Wrappers/RequestHandlerWrapper.cs::MediatR.Wrappers.RequestHandlerWrapperImpl.Handle#2",
+      "src/MediatR/Wrappers/RequestHandlerWrapper.cs::MediatR.Wrappers.RequestHandlerWrapperImpl.Handle#4"
+    ],
+    "kind": "explore",
+    "notes": "RequestHandlerWrapperImpl<TRequest,TResponse>.Handle resolves IPipelineBehavior<,> services, Reverse()s them and Aggregate()s them into a RequestHandlerDelegate wrapping the IRequestHandler; #4 is the void-request (Unit) variant."
+  },
+  {
+    "repo": "MediatR",
+    "question": "how are event subscribers invoked one after another by default",
+    "gold": [
+      "src/MediatR/NotificationPublishers/ForeachAwaitPublisher.cs::MediatR.NotificationPublishers.ForeachAwaitPublisher.Publish"
+    ],
+    "kind": "explore",
+    "notes": "hard: ForeachAwaitPublisher.Publish is the default INotificationPublisher (Mediator ctor and MediatRServiceConfiguration.NotificationPublisher default) and awaits each NotificationHandlerExecutor in a foreach loop. Vocabulary mismatch: 'event subscribers invoked one after another' vs 'ForeachAwaitPublisher.Publish / notification handlers'."
+  },
+  {
+    "repo": "MediatR",
+    "question": "where is the RSA modulus used to verify the JWT signature",
+    "gold": [
+      "src/MediatR/Licensing/LicenseAccessor.cs::MediatR.Licensing.LicenseAccessor.ValidateKey"
+    ],
+    "kind": "explore",
+    "notes": "hard: LicenseAccessor.ValidateKey builds RSAParameters (Exponent/Modulus), an RsaSecurityKey and TokenValidationParameters, then calls JsonWebTokenHandler.ValidateTokenAsync. Vocabulary mismatch: question says RSA/modulus/JWT/signature, symbol is 'ValidateKey' under Licensing."
+  },
+  {
+    "repo": "MediatR",
+    "question": "where do we pick the closest-matching exception action when several are registered",
+    "gold": [
+      "src/MediatR/Internal/HandlersOrderer.cs::MediatR.Internal.HandlersOrderer.Prioritize",
+      "src/MediatR/Internal/ObjectDetails.cs::MediatR.Internal.ObjectDetails.Compare"
+    ],
+    "kind": "explore",
+    "notes": "hard: HandlersOrderer.Prioritize removes overridden handlers and sorts them with ObjectDetails.Compare (by assembly, then namespace, then location relative to the request type). Called from both exception-handler and exception-action behaviors. Vocabulary mismatch: 'closest-matching / pick / exception action' vs 'HandlersOrderer.Prioritize / ObjectDetails.Compare'."
+  },
+  {
+    "repo": "MediatR",
+    "question": "where is the timeout for generic handler registration enforced",
+    "gold": [
+      "src/MediatR/Registration/ServiceRegistrar.cs::MediatR.Registration.ServiceRegistrar.AddMediatRClassesWithTimeout"
+    ],
+    "kind": "explore",
+    "notes": "AddMediatRClassesWithTimeout wraps AddMediatRClasses in a CancellationTokenSource(RegistrationTimeout) and converts OperationCanceledException into TimeoutException('The generic handler registration process timed out.')."
+  },
+  {
+    "repo": "MediatR",
+    "question": "how does Send dispatch an object request whose response type is unknown at compile time",
+    "gold": [
+      "src/MediatR/Mediator.cs::MediatR.Mediator.Send#3"
+    ],
+    "kind": "explore",
+    "notes": "Mediator.Send(object request, ...) inspects the request's interfaces for IRequest<> or IRequest, picks RequestHandlerWrapperImpl<,> or RequestHandlerWrapperImpl<>, caches it in _requestHandlers and calls Handle via the non-generic RequestHandlerBase."
+  },
+  {
+    "repo": "MediatR",
+    "question": "notification publisher",
+    "gold": [
+      "src/MediatR/INotificationPublisher.cs::MediatR.INotificationPublisher",
+      "src/MediatR/NotificationPublishers/ForeachAwaitPublisher.cs::MediatR.NotificationPublishers.ForeachAwaitPublisher",
+      "src/MediatR/NotificationPublishers/TaskWhenAllPublisher.cs::MediatR.NotificationPublishers.TaskWhenAllPublisher"
+    ],
+    "kind": "search",
+    "notes": "The INotificationPublisher interface and its two built-in implementations in the NotificationPublishers namespace should rank first for this keyword search."
+  },
+  {
+    "repo": "MediatR",
+    "question": "AddOpenBehavior",
+    "gold": [
+      "src/MediatR/MicrosoftExtensionsDI/MediatrServiceConfiguration.cs::Microsoft.Extensions.DependencyInjection.MediatRServiceConfiguration.AddOpenBehavior"
+    ],
+    "kind": "search",
+    "notes": "Exact identifier: MediatRServiceConfiguration.AddOpenBehavior(Type, ServiceLifetime) validates the open generic implements IPipelineBehavior<,> and appends a ServiceDescriptor to BehaviorsToRegister."
+  },
+  {
+    "repo": "MediatR",
+    "question": "what calls HandlersOrderer.Prioritize",
+    "gold": [
+      "src/MediatR/Pipeline/RequestExceptionProcessorBehavior.cs::MediatR.Pipeline.RequestExceptionProcessorBehavior.GetHandlersForException",
+      "src/MediatR/Pipeline/RequestExceptionActionProcessorBehavior.cs::MediatR.Pipeline.RequestExceptionActionProcessorBehavior.GetActionsForException"
+    ],
+    "kind": "callers",
+    "notes": "Target: src/MediatR/Internal/HandlersOrderer.cs::MediatR.Internal.HandlersOrderer.Prioritize. Call sites verified in source: RequestExceptionProcessorBehavior.cs:93 and RequestExceptionActionProcessorBehavior.cs:77 both call HandlersOrderer.Prioritize(list, request)."
+  },
+  {
+    "repo": "MediatR",
+    "question": "who calls CheckLicense",
+    "gold": [
+      "src/MediatR/Mediator.cs::MediatR.Mediator.Mediator#2"
+    ],
+    "kind": "callers",
+    "notes": "Target: src/MediatR/MicrosoftExtensionsDI/MediatRServiceCollectionExtensions.cs::Microsoft.Extensions.DependencyInjection.MediatRServiceCollectionExtensions.CheckLicense. The only production call site is the two-arg Mediator constructor (Mediator.cs:42, _serviceProvider.CheckLicense()); the one-arg ctor chains to it."
+  },
+  {
+    "repo": "MediatR",
+    "question": "what breaks if I change FindInterfacesThatClose",
+    "gold": [
+      "src/MediatR/Registration/ServiceRegistrar.cs::MediatR.Registration.ServiceRegistrar.ConnectImplementationsToTypesClosing",
+      "src/MediatR/Registration/ServiceRegistrar.cs::MediatR.Registration.ServiceRegistrar.AddMediatRClasses",
+      "src/MediatR/MicrosoftExtensionsDI/MediatrServiceConfiguration.cs::Microsoft.Extensions.DependencyInjection.MediatRServiceConfiguration.AddBehavior#3"
+    ],
+    "kind": "impact",
+    "notes": "Target: src/MediatR/Registration/ServiceRegistrar.cs::MediatR.Registration.ServiceRegistrar.FindInterfacesThatClose. Direct callers verified by grep: ServiceRegistrar.AddMediatRClasses (line 81), ServiceRegistrar.ConnectImplementationsToTypesClosing (lines 109, 115), and MediatRServiceConfiguration.AddBehavior(Type implementationType, ...) (line 173); the AddStreamBehavior/AddRequestPre/PostProcessor overloads also use it."
+  },
+  {
+    "repo": "MediatR",
+    "question": "how does Mediator.Publish reach INotificationPublisher.Publish",
+    "gold": [
+      "src/MediatR/Mediator.cs::MediatR.Mediator.PublishNotification",
+      "src/MediatR/Mediator.cs::MediatR.Mediator.PublishCore"
+    ],
+    "kind": "path",
+    "notes": "Mediator.Publish -> PublishNotification (builds/caches NotificationHandlerWrapperImpl and passes PublishCore as the publish delegate) -> NotificationHandlerWrapperImpl.Handle invokes that delegate -> Mediator.PublishCore calls _publisher.Publish(handlerExecutors, notification, ct), i.e. INotificationPublisher.Publish."
+  },
+  {
+    "repo": "Slim",
+    "question": "how does Slim decide whether an error page is rendered as JSON, XML or HTML",
+    "gold": [
+      "Slim/Handlers/ErrorHandler.php::Slim.Handlers.ErrorHandler.determineContentType"
+    ],
+    "kind": "explore",
+    "notes": "hard: ErrorHandler::determineContentType intersects the Accept header with the keys of $errorRenderers (and falls back to +json/+xml suffix matching) to choose the renderer content type; no word of 'determineContentType' appears in the question."
+  },
+  {
+    "repo": "Slim",
+    "question": "how does a HEAD request fall back to a matching GET route",
+    "gold": [
+      "Slim/Routing/FastRouteDispatcher.php::Slim.Routing.FastRouteDispatcher.dispatch"
+    ],
+    "kind": "explore",
+    "notes": "hard: FastRouteDispatcher::dispatch explicitly retries routingResults('GET', $uri) when $httpMethod === 'HEAD' and nothing matched, then tries '*' fallback routes. Question shares no word with 'dispatch'."
+  },
+  {
+    "repo": "Slim",
+    "question": "where is the response streamed to the client in chunks",
+    "gold": [
+      "Slim/ResponseEmitter.php::Slim.ResponseEmitter.emitBody",
+      "Slim/ResponseEmitter.php::Slim.ResponseEmitter.emit"
+    ],
+    "kind": "explore",
+    "notes": "hard: ResponseEmitter::emitBody reads the body in $responseChunkSize pieces (honouring Content-Length and connection_status) and echoes it; emit() is the entry point. Neither 'emit' nor 'body' matches the question's vocabulary (streamed/client/chunks)."
+  },
+  {
+    "repo": "Slim",
+    "question": "where does the X-Http-Method-Override header get applied to the request method",
+    "gold": [
+      "Slim/Middleware/MethodOverrideMiddleware.php::Slim.Middleware.MethodOverrideMiddleware.process"
+    ],
+    "kind": "explore",
+    "notes": "MethodOverrideMiddleware::process reads getHeaderLine('X-Http-Method-Override') (or the _METHOD form field on POST) and calls withMethod()."
+  },
+  {
+    "repo": "Slim",
+    "question": "where are the default JSON, form-urlencoded and XML body parsers registered",
+    "gold": [
+      "Slim/Middleware/BodyParsingMiddleware.php::Slim.Middleware.BodyParsingMiddleware.registerDefaultBodyParsers"
+    ],
+    "kind": "explore",
+    "notes": "registerDefaultBodyParsers registers closures for application/json, application/x-www-form-urlencoded, application/xml and text/xml via registerBodyParser."
+  },
+  {
+    "repo": "Slim",
+    "question": "how does the callable resolver turn a 'Class:method' string into an instance and method",
+    "gold": [
+      "Slim/CallableResolver.php::Slim.CallableResolver.resolveSlimNotation",
+      "Slim/CallableResolver.php::Slim.CallableResolver.callablePattern"
+    ],
+    "kind": "explore",
+    "notes": "resolveSlimNotation matches the static $callablePattern regex, pulls the class from the container (or instantiates it with the container) and returns [instance, method]."
+  },
+  {
+    "repo": "Slim",
+    "question": "route cache file",
+    "gold": [
+      "Slim/Routing/RouteCollector.php::Slim.Routing.RouteCollector.setCacheFile",
+      "Slim/Routing/RouteCollector.php::Slim.Routing.RouteCollector.getCacheFile"
+    ],
+    "kind": "search",
+    "notes": "RouteCollector::setCacheFile validates readability/writability and stores the FastRoute cache path; getCacheFile is read by Dispatcher::createDispatcher to pick cachedDispatcher vs simpleDispatcher."
+  },
+  {
+    "repo": "Slim",
+    "question": "urlFor",
+    "gold": [
+      "Slim/Routing/RouteParser.php::Slim.Routing.RouteParser.urlFor",
+      "Slim/Interfaces/RouteParserInterface.php::Slim.Interfaces.RouteParserInterface.urlFor"
+    ],
+    "kind": "search",
+    "notes": "Exact identifier; the concrete implementation in RouteParser (prepends base path to relativeUrlFor) should rank first, interface declaration second."
+  },
+  {
+    "repo": "Slim",
+    "question": "who calls performRouting",
+    "gold": [
+      "Slim/Middleware/RoutingMiddleware.php::Slim.Middleware.RoutingMiddleware.process",
+      "Slim/Routing/RouteRunner.php::Slim.Routing.RouteRunner.handle"
+    ],
+    "kind": "callers",
+    "notes": "target: Slim/Middleware/RoutingMiddleware.php::Slim.Middleware.RoutingMiddleware.performRouting. Called at RoutingMiddleware.php:44 ($this->performRouting) and RouteRunner.php:62 (new RoutingMiddleware(...)->performRouting when routing was not already done)."
+  },
+  {
+    "repo": "Slim",
+    "question": "what calls computeRoutingResults",
+    "gold": [
+      "Slim/Middleware/RoutingMiddleware.php::Slim.Middleware.RoutingMiddleware.resolveRoutingResultsFromRequest"
+    ],
+    "kind": "callers",
+    "notes": "target: Slim/Routing/RouteResolver.php::Slim.Routing.RouteResolver.computeRoutingResults. The only production call site is RoutingMiddleware::resolveRoutingResultsFromRequest (RoutingMiddleware.php:93), which passes the URI path and method."
+  },
+  {
+    "repo": "Slim",
+    "question": "what breaks if I change Route.run",
+    "gold": [
+      "Slim/Routing/RouteRunner.php::Slim.Routing.RouteRunner.handle",
+      "Slim/Interfaces/RouteInterface.php::Slim.Interfaces.RouteInterface.run"
+    ],
+    "kind": "impact",
+    "notes": "target: Slim/Routing/Route.php::Slim.Routing.Route.run. RouteRunner::handle invokes $route->run($request) at RouteRunner.php:74 as the tip of the app middleware stack; RouteInterface::run is the contract Route implements."
+  },
+  {
+    "repo": "Slim",
+    "question": "how does App reach ResponseEmitter",
+    "gold": [
+      "Slim/App.php::Slim.App.run"
+    ],
+    "kind": "path",
+    "notes": "App::run instantiates `new ResponseEmitter()` (App.php:194) after handle() and calls emit($response); this is the single direct hop from App to ResponseEmitter."
+  },
+  {
+    "repo": "sinatra",
+    "question": "How does Sinatra pick which route block runs for the current request?",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.route!",
+      "lib/sinatra/base.rb::Sinatra.Base.process_route"
+    ],
+    "kind": "explore",
+    "notes": "route! iterates settings.routes[request_method] (and superclasses), calling process_route for each pattern/conditions; process_route matches the Mustermann pattern against path_info and fills params."
+  },
+  {
+    "repo": "sinatra",
+    "question": "Where does a raised error get turned into an HTTP status and a custom error handler response?",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.handle_exception!"
+    ],
+    "kind": "explore",
+    "notes": "hard: question says 'raised error', gold is handle_exception! - it maps Sinatra::Error#http_status/code to status, dumps errors, and looks up error_block! by class or status."
+  },
+  {
+    "repo": "sinatra",
+    "question": "How does Sinatra load the views embedded after __END__ in the app file?",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.inline_templates="
+    ],
+    "kind": "explore",
+    "notes": "hard: 'views embedded after __END__' vs gold name inline_templates= - reads the source file, splits on __END__, and parses @@ name sections into templates[]."
+  },
+  {
+    "repo": "sinatra",
+    "question": "How does Sinatra serve files out of the public folder before routes run?",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.static!"
+    ],
+    "kind": "explore",
+    "notes": "hard: 'public folder' vs gold static! - builds path from settings.public_folder + path_info, checks it stays under public_dir, sets sinatra.static_file and calls send_file. Invoked from dispatch! when settings.static? and GET/HEAD."
+  },
+  {
+    "repo": "sinatra",
+    "question": "Where does rack-protection strip ../ path traversal segments from PATH_INFO?",
+    "gold": [
+      "rack-protection/lib/rack/protection/path_traversal.rb::Rack.Protection.PathTraversal.cleanup",
+      "rack-protection/lib/rack/protection/path_traversal.rb::Rack.Protection.PathTraversal"
+    ],
+    "kind": "explore",
+    "notes": "PathTraversal#call rewrites env['PATH_INFO'] via #cleanup, which unescapes %2e/%2f/%5c, splits on '/', pops on '..' and rejoins."
+  },
+  {
+    "repo": "sinatra",
+    "question": "How does the redirect helper decide between a 302 and a 303 status?",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Helpers.redirect"
+    ],
+    "kind": "explore",
+    "notes": "Helpers#redirect sets 303 when SERVER_PROTOCOL is HTTP/1.1 and the method is not GET, otherwise 302, then sets Location via uri() and halts."
+  },
+  {
+    "repo": "sinatra",
+    "question": "etag",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Helpers.etag"
+    ],
+    "kind": "search",
+    "notes": "Helpers#etag sets the ETag header (strong/weak) and halts with 304/412 when etag_matches?; the most relevant symbol for this identifier."
+  },
+  {
+    "repo": "sinatra",
+    "question": "host authorization",
+    "gold": [
+      "rack-protection/lib/rack/protection/host_authorization.rb::Rack.Protection.HostAuthorization",
+      "lib/sinatra/base.rb::Sinatra.Base.setup_host_authorization"
+    ],
+    "kind": "search",
+    "notes": "Rack::Protection::HostAuthorization is the middleware that checks permitted hosts; Base.setup_host_authorization wires it in with the host_authorization setting."
+  },
+  {
+    "repo": "sinatra",
+    "question": "what calls process_route",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.route!",
+      "lib/sinatra/base.rb::Sinatra.Base.filter!",
+      "lib/sinatra/base.rb::Sinatra.Base.error_block!"
+    ],
+    "kind": "callers",
+    "notes": "target: lib/sinatra/base.rb::Sinatra.Base.process_route. Call sites verified in source: base.rb:1070 (route!), base.rb:1058 (filter!), base.rb:1264 (error_block!)."
+  },
+  {
+    "repo": "sinatra",
+    "question": "who calls handle_exception!",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.dispatch!"
+    ],
+    "kind": "callers",
+    "notes": "target: lib/sinatra/base.rb::Sinatra.Base.handle_exception!. dispatch! is the only production caller - it calls invoke { handle_exception!(e) } in both its rescue (base.rb:1198) and ensure/after-filter rescue (base.rb:1203)."
+  },
+  {
+    "repo": "sinatra",
+    "question": "what breaks if I change compile!",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.route",
+      "lib/sinatra/base.rb::Sinatra.Base.add_filter",
+      "sinatra-contrib/lib/sinatra/reloader.rb::Sinatra.Reloader.BaseMethods.compile!"
+    ],
+    "kind": "impact",
+    "notes": "target: lib/sinatra/base.rb::Sinatra.Base.compile!. Base.route (base.rb:1778) and Base.add_filter (base.rb:1499) call compile! to build the [pattern, conditions, wrapper] signature; Sinatra::Reloader::BaseMethods#compile! overrides it and calls super, relying on its return value."
+  },
+  {
+    "repo": "sinatra",
+    "question": "how does Base.dispatch! reach route_missing",
+    "gold": [
+      "lib/sinatra/base.rb::Sinatra.Base.route!"
+    ],
+    "kind": "path",
+    "notes": "dispatch! calls route! inside invoke {}; route! runs all routes and, when none halts, falls through to route_missing (which raises NotFound or forwards downstream). Chain: dispatch! -> route! -> route_missing."
+  },
+  {
+    "repo": "bytes",
+    "question": "how do I turn a mutable buffer into an immutable, shareable one",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.freeze"
+    ],
+    "kind": "explore",
+    "notes": "hard: BytesMut::freeze(self) -> Bytes is the conversion; for KIND_VEC it rebuilds the Vec and converts via Bytes::from, for KIND_ARC it wraps with SHARED_VTABLE. Question never says 'freeze'."
+  },
+  {
+    "repo": "bytes",
+    "question": "where does reserve decide between shifting data back in place and reallocating",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.reserve_inner"
+    ],
+    "kind": "explore",
+    "notes": "reserve_inner holds the KIND_VEC branch: if capacity-len+off >= additional && off >= len it copy_nonoverlapping's data back to the vec start, otherwise rebuild_vec + Vec::reserve; reserve() itself is a thin short-circuit wrapper."
+  },
+  {
+    "repo": "bytes",
+    "question": "how does Bytes race-safely promote its backing buffer to a refcounted Shared on first duplication",
+    "gold": [
+      "src/bytes.rs::shallow_clone_vec"
+    ],
+    "kind": "explore",
+    "notes": "hard: shallow_clone_vec allocates a Shared with ref_cnt 2 and compare_exchange's it into the AtomicPtr; on a lost race it frees its Shared and falls back to shallow_clone_arc. No word of 'shallow', 'clone' or 'vec' in the question."
+  },
+  {
+    "repo": "bytes",
+    "question": "what do I get back when a fallible integer read finds the buffer too short",
+    "gold": [
+      "src/lib.rs::TryGetError"
+    ],
+    "kind": "explore",
+    "notes": "hard: all Buf::try_get_* / try_copy_to_slice return Err(TryGetError { requested, available }) (built in buf_try_get_impl); the infallible get_* variants call panic_advance with the same struct. Question shares no word with 'TryGetError'."
+  },
+  {
+    "repo": "bytes",
+    "question": "how are two adjacent BytesMut halves rejoined without copying",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.try_unsplit",
+      "src/bytes_mut.rs::BytesMut.unsplit"
+    ],
+    "kind": "explore",
+    "notes": "hard: try_unsplit checks self.ptr+len == other.ptr, both KIND_ARC and same data pointer, then just adds len/cap; unsplit wraps it and falls back to extend_from_slice. 'rejoined' vs 'unsplit' is the vocabulary mismatch."
+  },
+  {
+    "repo": "bytes",
+    "question": "where is hex (LowerHex/UpperHex) formatting for Bytes implemented",
+    "gold": [
+      "src/fmt/hex.rs::BytesRef.fmt",
+      "src/fmt/hex.rs::BytesRef.fmt#2"
+    ],
+    "kind": "explore",
+    "notes": "src/fmt/hex.rs implements LowerHex and UpperHex on the private BytesRef wrapper (write!(f, \"{:02x}\", b) per byte); fmt_impl! then forwards Bytes/BytesMut to it."
+  },
+  {
+    "repo": "bytes",
+    "question": "UninitSlice",
+    "gold": [
+      "src/buf/uninit_slice.rs::UninitSlice"
+    ],
+    "kind": "search",
+    "notes": "The public struct UninitSlice([MaybeUninit<u8>]) in src/buf/uninit_slice.rs is the type returned by BufMut::chunk_mut; it should rank first for the bare identifier."
+  },
+  {
+    "repo": "bytes",
+    "question": "reserve",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.reserve"
+    ],
+    "kind": "search",
+    "notes": "BytesMut::reserve(&mut self, additional) is the exported method a developer means by 'reserve'; reserve_inner is its private helper."
+  },
+  {
+    "repo": "bytes",
+    "question": "who calls shallow_clone_vec",
+    "gold": [
+      "src/bytes.rs::promotable_even_clone",
+      "src/bytes.rs::promotable_odd_clone"
+    ],
+    "kind": "callers",
+    "notes": "target src/bytes.rs::shallow_clone_vec. Verified call sites: promotable_even_clone (src/bytes.rs:1195) and promotable_odd_clone (src/bytes.rs:1284), both in the KIND_VEC branch of the promotable vtables' clone."
+  },
+  {
+    "repo": "bytes",
+    "question": "what calls rebuild_vec",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.freeze",
+      "src/bytes_mut.rs::BytesMut.reserve_inner",
+      "src/bytes_mut.rs::BytesMut.promote_to_shared"
+    ],
+    "kind": "callers",
+    "notes": "target src/bytes_mut.rs::rebuild_vec. Verified production call sites: freeze (bytes_mut.rs:265), reserve_inner (bytes_mut.rs:682), promote_to_shared (bytes_mut.rs:1136); also called from BytesMut::drop and shared_v_to_vec."
+  },
+  {
+    "repo": "bytes",
+    "question": "what breaks if I change promote_to_shared",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.shallow_clone",
+      "src/bytes_mut.rs::BytesMut.advance_unchecked"
+    ],
+    "kind": "impact",
+    "notes": "target src/bytes_mut.rs::BytesMut.promote_to_shared. Direct callers verified in source: shallow_clone (bytes_mut.rs:1161, ref_count 2, used by split/split_off/split_to) and advance_unchecked (bytes_mut.rs:1046, ref_count 1, when vec pos exceeds MAX_VEC_POS)."
+  },
+  {
+    "repo": "bytes",
+    "question": "how does BytesMut reach Bytes",
+    "gold": [
+      "src/bytes_mut.rs::BytesMut.freeze"
+    ],
+    "kind": "path",
+    "notes": "BytesMut::freeze is the member of BytesMut that constructs a Bytes: it calls Bytes::from(Vec) (via vec.into()) in the KIND_VEC case and Bytes::with_vtable(..., &SHARED_VTABLE) in the KIND_ARC case (bytes_mut.rs:259-278)."
+  },
+  {
+    "repo": "fmt",
+    "question": "How does fmt parse a replacement field like {0:>10} inside a format string?",
+    "gold": [
+      "include/fmt/base.h::parse_replacement_field"
+    ],
+    "kind": "explore",
+    "notes": "parse_replacement_field (base.h:1595) handles '{', the arg id, ':' specs and '}' for each replacement field; called from parse_format_string. Easy: name appears in question."
+  },
+  {
+    "repo": "fmt",
+    "question": "How is the number of characters an integer will occupy computed before it is written?",
+    "gold": [
+      "include/fmt/format.h::count_digits",
+      "include/fmt/format.h::count_digits#3"
+    ],
+    "kind": "explore",
+    "notes": "hard: count_digits (uint64_t overload at format.h:1246, uint32_t at 1310) computes the decimal digit count used to size integer output; question shares no word with 'count'/'digits'."
+  },
+  {
+    "repo": "fmt",
+    "question": "Where is the description text for an errno code produced, with a fallback if that throws?",
+    "gold": [
+      "include/fmt/format-inl.h::format_system_error",
+      "include/fmt/format-inl.h::format_error_code"
+    ],
+    "kind": "explore",
+    "notes": "hard: format_system_error (format-inl.h:1442) writes std::system_error(ec, message).what() and on exception falls back to format_error_code. Question avoids the words format/system/error."
+  },
+  {
+    "repo": "fmt",
+    "question": "How does the memory buffer grow its capacity when it runs out of space?",
+    "gold": [
+      "include/fmt/format.h::grow"
+    ],
+    "kind": "explore",
+    "notes": "basic_memory_buffer::grow (format.h:950) grows capacity by 1.5x (or to the requested size), allocates via the allocator, memcpy's and frees the old block unless it is the inline store."
+  },
+  {
+    "repo": "fmt",
+    "question": "How does fmt print UTF-8 text to the Windows console without mojibake?",
+    "gold": [
+      "include/fmt/format-inl.h::write_console#2",
+      "include/fmt/format-inl.h::print"
+    ],
+    "kind": "explore",
+    "notes": "detail::print (format-inl.h:1752) checks _isatty and calls write_console (the _WIN32 overload at 1734) which converts via utf8_to_utf16 and calls WriteConsoleW; otherwise falls back to fwrite_all."
+  },
+  {
+    "repo": "fmt",
+    "question": "Where is a multibyte character sequence turned into a single code point?",
+    "gold": [
+      "include/fmt/format.h::utf8_decode"
+    ],
+    "kind": "explore",
+    "notes": "hard: utf8_decode (format.h:576) is the branchless UTF-8 decoder producing one code point and an error flag; used by for_each_codepoint. Question shares no word with 'utf8'/'decode'."
+  },
+  {
+    "repo": "fmt",
+    "question": "hexfloat",
+    "gold": [
+      "include/fmt/format.h::format_hexfloat",
+      "include/fmt/format.h::format_hexfloat#2"
+    ],
+    "kind": "search",
+    "notes": "format_hexfloat (format.h:3274, and the long-double wrapper at 3356) implements the {:a} hexadecimal float formatting; these should rank first for this keyword."
+  },
+  {
+    "repo": "fmt",
+    "question": "utf8 to utf16",
+    "gold": [
+      "include/fmt/format-inl.h::utf8_to_utf16"
+    ],
+    "kind": "search",
+    "notes": "utf8_to_utf16 constructor (format-inl.h:1427) converts a UTF-8 string_view into a wchar_t buffer, emitting surrogate pairs for code points above 0xFFFF."
+  },
+  {
+    "repo": "fmt",
+    "question": "who calls utf8_to_utf16",
+    "gold": [
+      "include/fmt/format-inl.h::write_console#2",
+      "src/os.cc::file.file"
+    ],
+    "kind": "callers",
+    "notes": "Target id: include/fmt/format-inl.h::utf8_to_utf16. Verified call sites: write_console (format-inl.h:1735 'auto u16 = utf8_to_utf16(text)') and file::file constructor (src/os.cc:219 'detail::utf8_to_utf16(string_view(path.c_str()))'). chrono.h copy_unit (1567) also calls it but is not indexed."
+  },
+  {
+    "repo": "fmt",
+    "question": "what calls do_report_error",
+    "gold": [
+      "include/fmt/format-inl.h::report_system_error",
+      "src/os.cc::report_windows_error"
+    ],
+    "kind": "callers",
+    "notes": "Target id: include/fmt/format-inl.h::do_report_error. Verified: report_system_error (format-inl.h:1455) passes format_system_error; report_windows_error (src/os.cc:165) passes detail::format_windows_error."
+  },
+  {
+    "repo": "fmt",
+    "question": "what breaks if I change fwrite_all",
+    "gold": [
+      "include/fmt/format-inl.h::print",
+      "include/fmt/format-inl.h::vprint_mojibake"
+    ],
+    "kind": "impact",
+    "notes": "Target id: include/fmt/format-inl.h::fwrite_all. Direct production callers verified in source: detail::print (format-inl.h:1760) and vprint_mojibake (format-inl.h:1748); do_report_error deliberately avoids it because it may throw."
+  },
+  {
+    "repo": "fmt",
+    "question": "how does report_system_error reach format_error_code",
+    "gold": [
+      "include/fmt/format-inl.h::do_report_error",
+      "include/fmt/format-inl.h::format_system_error"
+    ],
+    "kind": "path",
+    "notes": "report_system_error (format-inl.h:1453) calls do_report_error(format_system_error, ...); do_report_error invokes that func pointer, and format_system_error (1442) calls format_error_code (1450) in its FMT_CATCH fallback. Intermediates are do_report_error and format_system_error."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "how does Alamofire handle HTTP redirects",
+    "gold": [
+      "Source/Core/SessionDelegate.swift::SessionDelegate.urlSession#5",
+      "Source/Features/RedirectHandler.swift::Redirector.task"
+    ],
+    "kind": "explore",
+    "notes": "URLSession's willPerformHTTPRedirection delegate callback (SessionDelegate.urlSession#5, lines 200-212) looks up the request's or session's RedirectHandler and forwards to it; Redirector.task implements follow/doNotFollow/modify behaviors."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "where does a failed call get scheduled to run again after a delay",
+    "gold": [
+      "Source/Core/Session.swift::Session.retryRequest"
+    ],
+    "kind": "explore",
+    "notes": "hard: gold is Session.retryRequest(_:withDelay:) which calls request.prepareForRetry() then perform(forRetry:) on rootQueue, using rootQueue.after(delay) when a delay is present. Question uses 'failed call ... run again ... delay' and shares no word with 'Session.retryRequest'."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "how is the server's TLS chain verified against files bundled in the app",
+    "gold": [
+      "Source/Features/ServerTrustEvaluation.swift::PinnedCertificatesTrustEvaluator.evaluate"
+    ],
+    "kind": "explore",
+    "notes": "hard: certificate pinning is implemented by PinnedCertificatesTrustEvaluator.evaluate (lines 258-284), which sets anchor certificates from Bundle.main.af.certificates and evaluates SecTrust. Question vocabulary (TLS chain, files bundled) shares no word with the symbol name."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "where is the HTTP body zlib-encoded before sending",
+    "gold": [
+      "Source/Features/RequestCompression.swift::DeflateRequestCompressor.adapt",
+      "Source/Features/RequestCompression.swift::DeflateRequestCompressor.deflate"
+    ],
+    "kind": "explore",
+    "notes": "hard: DeflateRequestCompressor.adapt (RequestAdapter) compresses urlRequest.httpBody via deflate() and sets Content-Encoding: deflate. Question says 'zlib-encoded'/'body'/'sending'; symbol words are Deflate/Request/Compressor/adapt - no overlap."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "where is the default User-Agent header built",
+    "gold": [
+      "Source/Core/HTTPHeaders.swift::HTTPHeader.defaultUserAgent"
+    ],
+    "kind": "explore",
+    "notes": "HTTPHeader.defaultUserAgent (HTTPHeaders.swift:380-432) assembles the executable/bundle/version/OS/Alamofire-version string; used by HTTPHeaders.default."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "how does validate() check that the response status code is acceptable",
+    "gold": [
+      "Source/Features/Validation.swift::Request.validate",
+      "Source/Features/Validation.swift::DataRequest.validate#3"
+    ],
+    "kind": "explore",
+    "notes": "Request.validate(statusCode:response:) in Validation.swift (lines 81-91) does the actual check and produces .unacceptableStatusCode; DataRequest.validate() (no-arg, lines 187-193) is the public entry that validates 200..<300 plus content type."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "multipart boundary",
+    "gold": [
+      "Source/Features/MultipartFormData.swift::MultipartFormData.BoundaryGenerator.randomBoundary",
+      "Source/Features/MultipartFormData.swift::MultipartFormData.BoundaryGenerator"
+    ],
+    "kind": "search",
+    "notes": "The boundary string for multipart/form-data is created by BoundaryGenerator.randomBoundary() ('alamofire.boundary.' + random hex); BoundaryGenerator also builds initial/encapsulated/final boundary data."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "RetryPolicy",
+    "gold": [
+      "Source/Features/RetryPolicy.swift::RetryPolicy"
+    ],
+    "kind": "search",
+    "notes": "Exact class name; open class RetryPolicy: RequestInterceptor in Source/Features/RetryPolicy.swift:29-340 should rank first over ConnectionLostRetryPolicy and the RequestInterceptor.retryPolicy extension helpers."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "who calls Session.retryRequest",
+    "gold": [
+      "Source/Core/Request.swift::Request.retryOrFinish",
+      "Source/Core/DataRequest.swift::DataRequest._response",
+      "Source/Core/DownloadRequest.swift::DownloadRequest._response"
+    ],
+    "kind": "callers",
+    "notes": "target: Source/Core/Session.swift::Session.retryRequest. Called through the RequestDelegate protocol as delegate.retryRequest(self, withDelay:) at Request.swift:555 (retryOrFinish), DataRequest.swift:303 (inside private _response serializer completion), DownloadRequest.swift:433 (inside private _response)."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "what calls serverTrustEvaluator",
+    "gold": [
+      "Source/Core/SessionDelegate.swift::SessionDelegate.attemptServerTrustAuthentication"
+    ],
+    "kind": "callers",
+    "notes": "target: Source/Features/ServerTrustEvaluation.swift::ServerTrustManager.serverTrustEvaluator. The only production call site is SessionDelegate.swift:138 inside attemptServerTrustAuthentication: stateProvider?.serverTrustManager?.serverTrustEvaluator(forHost: host)."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "what breaks if I change ServerTrustEvaluating",
+    "gold": [
+      "Source/Features/ServerTrustEvaluation.swift::DefaultTrustEvaluator",
+      "Source/Features/ServerTrustEvaluation.swift::PinnedCertificatesTrustEvaluator",
+      "Source/Features/ServerTrustEvaluation.swift::PublicKeysTrustEvaluator"
+    ],
+    "kind": "impact",
+    "notes": "target: Source/Features/ServerTrustEvaluation.swift::ServerTrustEvaluating (protocol). Direct conformers in source: DefaultTrustEvaluator (line 101), RevocationTrustEvaluator (125), PinnedCertificatesTrustEvaluator (229), PublicKeysTrustEvaluator (320), CompositeTrustEvaluator (403), DisabledTrustEvaluator (443); the three listed are the most commonly used implementers."
+  },
+  {
+    "repo": "Alamofire",
+    "question": "how does MultipartFormData reach BoundaryGenerator",
+    "gold": [
+      "Source/Features/MultipartFormData.swift::MultipartFormData.init"
+    ],
+    "kind": "path",
+    "notes": "MultipartFormData.init(fileManager:boundary:) at MultipartFormData.swift:121 does self.boundary = boundary ?? BoundaryGenerator.randomBoundary(), the direct structural hop from the class to the nested BoundaryGenerator enum (private initialBoundaryData/encapsulatedBoundaryData/finalBoundaryData also call BoundaryGenerator.boundaryData)."
+  }
+]

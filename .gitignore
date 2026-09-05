@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.symbra/
+*.log
+.DS_Store
+scratch/
+coverage/
+
+# Gradle daemon artifacts (fixtures are never built)
+.gradle/
+grammars-optional/
+bench/results/latest.json

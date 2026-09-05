@@ -1,0 +1,405 @@
+import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { Store, defaultDbPath } from '../store/db.js';
+import { scanRepo, type ScannedFile } from './scan.js';
+import { contentHash } from './extract.js';
+import { ExtractPool } from './pool.js';
+import { detectProject } from './project.js';
+import { Resolver } from '../resolve/resolver.js';
+import { languageForPath } from '../languages/registry.js';
+import { computeMetrics, loadRows } from '../analyze/metrics.js';
+import { computeCommunities } from '../analyze/communities.js';
+import { inheritDocs } from '../analyze/inherit_docs.js';
+import { embedRepo, hasVectors } from '../embed/embed.js';
+import { modelCached } from '../embed/model.js';
+
+export interface IndexOptions {
+  root: string;
+  dbPath?: string;
+  full?: boolean;
+  /** Only re-index these repo-relative paths (plus dependents). Used by watch mode. */
+  only?: string[];
+  log?: (msg: string) => void;
+  skipAnalysis?: boolean;
+  /**
+   * Auto-embed changed/new symbols after indexing, when the semantic tier is already opted
+   * into (the `embeddings` table is non-empty) and the model is cached locally (no network).
+   * Default true. Set false for callers that don't want the extra (small) cost, such as
+   * benchmarks and most tests. Also short-circuited by `SYMBRA_EMBED=0`.
+   */
+  embed?: boolean;
+}
+
+/** Below this many changed+deleted files, PageRank and Louvain are deferred rather than re-run. */
+const INCREMENTAL_ANALYSIS_MAX_FILES = 20;
+/** Once this many files have accumulated since the last analysis, recompute regardless. */
+const ANALYSIS_STALE_LIMIT = 50;
+
+// --- Generated-content detection (cheap, at read time) --------------------------------------
+//
+// The filename heuristic in scan.ts catches hashed bundle names, but a generated file can also
+// carry a plain name (a `.js` build artifact checked in under an unremarkable path, a codegen
+// output in any language). These checks run on content already read into memory for extraction,
+// so they stay a single linear pass with no extra I/O.
+const GENERATED_MARKER_RE = /@generated\b/;
+const DO_NOT_EDIT_RE = /\bdo not edit\b/i;
+/** Only JS-family bundles get minified this way; other languages don't reach this path today
+ *  (scanRepo only extracts languages registry.ts knows, which excludes CSS). */
+const MINIFIED_EXT_RE = /\.(m?js|cjs|jsx)$/i;
+const MAX_AVG_LINE_LEN = 400;
+const MAX_LINE_LEN = 5000;
+
+/** True when `content` looks generated/minified rather than hand-written source. */
+function isGeneratedContent(path: string, content: string): boolean {
+  const head = content.split('\n', 5);
+  if (GENERATED_MARKER_RE.test(head.slice(0, 3).join('\n'))) return true;
+  if (DO_NOT_EDIT_RE.test(head.join('\n'))) return true;
+  if (!MINIFIED_EXT_RE.test(path)) return false;
+  const len = content.length;
+  if (!len) return false;
+  let maxLine = 0;
+  let lineCount = 1;
+  let lineStart = 0;
+  for (let i = 0; i < len; i++) {
+    if (content.charCodeAt(i) === 10) {
+      const l = i - lineStart;
+      if (l > maxLine) maxLine = l;
+      lineStart = i + 1;
+      lineCount++;
+    }
+  }
+  const lastLine = len - lineStart;
+  if (lastLine > maxLine) maxLine = lastLine;
+  if (maxLine > MAX_LINE_LEN) return true;
+  return len / lineCount > MAX_AVG_LINE_LEN;
+}
+
+export interface IndexStats {
+  files: number;
+  changed: number;
+  deleted: number;
+  resolved: number;
+  symbols: number;
+  edges: number;
+  unresolved: number;
+  importsResolved: number;
+  importsTotal: number;
+  ms: number;
+  /** True when PageRank/communities were deferred and are now out of date (meta `analysis_stale`). */
+  analysisStale: boolean;
+  /** Generated/minified files skipped: hashed bundle names (scan.ts) plus content-detected ones. */
+  skippedGenerated: number;
+  /** Files skipped because their grammar's .wasm is not installed and could not be fetched (offline/network failure). */
+  skippedGrammar: number;
+}
+
+function gitHead(root: string): string | null {
+  try {
+    return execSync('git rev-parse HEAD', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function indexRepo(opts: IndexOptions): Promise<IndexStats> {
+  const t0 = performance.now();
+  const log0 = opts.log ?? (() => {});
+  const log = (m: string) => log0(`${((performance.now() - t0) / 1000).toFixed(1)}s ${m}`);
+  const store = new Store(opts.dbPath ?? defaultDbPath(opts.root));
+  try {
+    if (opts.full) store.reset();
+    let skippedGenerated = 0;
+    let skippedGrammar = 0;
+    // Dedupe the "grammar not installed" warning per grammar, not per file: a repo can have
+    // thousands of files in one unfetched language and should get one clear line, not a flood.
+    const warnedGrammars = new Set<string>();
+    const scanned = scanRepo({ root: opts.root, log, onGeneratedSkip: () => skippedGenerated++ });
+    const byPath = new Map<string, ScannedFile>(scanned.map((f) => [f.path, f]));
+    const known = store.fileHashes();
+
+    // Determine changed and deleted files.
+    const changed: ScannedFile[] = [];
+    let newFiles = 0;
+    const onlySet = opts.only ? new Set(opts.only) : null;
+    for (const f of scanned) {
+      const k = known.get(f.path);
+      if (onlySet && !onlySet.has(f.path) && k) continue;
+      if (!k) {
+        newFiles++;
+        changed.push(f);
+        continue;
+      }
+      if (k.mtime === f.mtime && k.size === f.size) continue;
+      let content: string;
+      try {
+        content = readFileSync(f.abs, 'utf8');
+      } catch {
+        continue; // vanished or became unreadable between the scan and now: keep what we have
+      }
+      if (contentHash(content) === k.hash) {
+        store.prep('UPDATE files SET mtime = ?, size = ? WHERE path = ?').run(f.mtime, f.size, f.path);
+        continue;
+      }
+      changed.push(f);
+    }
+    const deleted = [...known.keys()].filter((p) => !byPath.has(p));
+    const changedPaths = new Set(changed.map((f) => f.path));
+    log(`scanned ${scanned.length} files: ${changed.length} changed, ${deleted.length} deleted`);
+
+    // Phase 1: extract + insert IR.
+    const affected = new Set<string>();
+    {
+      // Importers of a deleted file, plus every file holding an edge into one of its symbols:
+      // those were bound by the `unique`/`heuristic` tiers without an import and would otherwise
+      // keep pointing at rows that no longer exist.
+      const q = store.prep('SELECT DISTINCT file FROM edges WHERE dst = ? OR (dst >= ? AND dst < ?)');
+      for (const d of deleted) {
+        for (const imp of store.importers(d)) affected.add(imp);
+        for (const r of q.all(d, `${d}::`, `${d}::\uffff`) as { file: string }[]) if (r.file) affected.add(r.file);
+      }
+    }
+    store.transaction(() => {
+      for (const d of deleted) store.deleteFile(d);
+    });
+    let done = 0;
+    const BATCH = 200;
+    const pool = new ExtractPool(changed.length >= 24 ? undefined : 0);
+    try {
+      for (let i = 0; i < changed.length; i += BATCH) {
+        const batch = changed.slice(i, i + BATCH);
+        const jobs = batch.map(async (f) => {
+          let content: string;
+          try {
+            content = readFileSync(f.abs, 'utf8');
+          } catch {
+            return null;
+          }
+          if (content.includes('\u0000')) return null; // binary
+          if (isGeneratedContent(f.path, content)) {
+            skippedGenerated++;
+            return null;
+          }
+          const ir = await pool.extract(f.path, content).catch((err: unknown) => {
+            // Marker set by src/parse/loader.ts when a grammar is missing and could not be
+            // fetched (offline, network failure, or an unknown grammar): "GRAMMAR_UNAVAILABLE|<grammar>|<message>".
+            const msg = err instanceof Error ? err.message : String(err);
+            const m = /^GRAMMAR_UNAVAILABLE\|([^|]+)\|(.*)$/s.exec(msg);
+            if (m) {
+              skippedGrammar++;
+              const [, grammar, detail] = m;
+              if (!warnedGrammars.has(grammar!)) {
+                warnedGrammars.add(grammar!);
+                log(`skipping ${grammar} files: ${detail}`);
+              }
+            }
+            return null;
+          });
+          return ir ? { f, ir } : null;
+        });
+        const irs = (await Promise.all(jobs)).filter((x): x is NonNullable<typeof x> => x !== null);
+        store.transaction(() => {
+          for (const { f, ir } of irs) {
+            const lang = languageForPath(f.path);
+            const isTest = lang?.isTestFile ? lang.isTestFile(f.path) : /(^|\/)(tests?|__tests__|spec)\//.test(f.path);
+            for (const imp of store.importers(f.path)) affected.add(imp);
+            store.insertFileIR(ir, f.mtime, isTest);
+            affected.add(f.path);
+          }
+        });
+        done += batch.length;
+        if (changed.length > BATCH) log(`extracted ${done}/${changed.length}`);
+      }
+    } finally {
+      await pool.close();
+    }
+
+    if (skippedGenerated) log(`${skippedGenerated} generated/minified file${skippedGenerated === 1 ? '' : 's'} skipped`);
+    if (skippedGrammar) log(`${skippedGrammar} file${skippedGrammar === 1 ? '' : 's'} skipped: grammar not available (see warnings above)`);
+    log(`extraction done`);
+    // Phase 2: resolve affected files (+ importers of changed files, now that symbols exist).
+    const fileSet = new Set(scanned.map((f) => f.path));
+    const project = detectProject(opts.root, fileSet);
+    const resolver = new Resolver(store, project);
+    let toResolve: Set<string>;
+    if (changed.length === 0 && deleted.length === 0) toResolve = new Set();
+    else if (changed.length + deleted.length > scanned.length * 0.5 || opts.full) toResolve = fileSet;
+    else {
+      toResolve = new Set(affected);
+      for (const f of changed) for (const imp of store.importers(f.path)) toResolve.add(imp);
+      // Files whose imports never resolved: a module they wanted may have just been added.
+      // Most unresolved imports are third-party (`import os`) and never will resolve, so only
+      // the ones naming a segment of a newly added file are worth another pass.
+      if (newFiles) {
+        const newSegments = new Set<string>();
+        for (const f of changed) {
+          if (known.has(f.path)) continue;
+          const parts = f.path.split('/');
+          const base = parts[parts.length - 1]!.replace(/\.[^.]+$/, '');
+          // `pkg/__init__.py` / `pkg/index.ts` are reached under the directory's name.
+          if (base === '__init__' || base === 'index' || base === 'mod') {
+            if (parts.length > 1) newSegments.add(parts[parts.length - 2]!);
+          } else newSegments.add(base);
+        }
+        if (newSegments.size) {
+          for (const r of store.prep('SELECT file, source FROM imports WHERE resolved IS NULL').all() as { file: string; source: string }[]) {
+            if (r.source.split(/[/.:\\]+/).some((seg) => seg && newSegments.has(seg))) toResolve.add(r.file);
+          }
+        }
+      }
+      // files that referenced a name now defined in a changed file
+      const newNames = new Set<string>();
+      for (const f of changed) for (const s of store.symbolsInFile(f.path)) if (s.exported) newNames.add(s.name);
+      if (newNames.size && newNames.size < 2000) {
+        const q = store.prep('SELECT DISTINCT file FROM unresolved WHERE name = ?');
+        for (const n of newNames) for (const r of q.all(n) as { file: string }[]) toResolve.add(r.file);
+      }
+    }
+    for (const d of deleted) toResolve.delete(d);
+
+    let unresolvedCount = 0;
+    let importsResolved = 0;
+    let importsTotal = 0;
+    if (toResolve.size) {
+      resolver.loadIndexes();
+      const files = [...toResolve].filter((f) => fileSet.has(f)).sort();
+      // When resolving (nearly) everything, a supertype pre-pass makes one full pass sufficient.
+      if (toResolve === fileSet) {
+        for (const f of files) resolver.prepassSupertypes(f);
+        log('supertype pre-pass done');
+      }
+      let n = 0;
+      for (let i = 0; i < files.length; i += 200) {
+        const batch = files.slice(i, i + 200);
+        store.transaction(() => {
+          const insUnres = store.prep('INSERT INTO unresolved(file, line, scope, kind, name, qualifier, candidates) VALUES(?,?,?,?,?,?,?)');
+          for (const f of batch) {
+            // A changed file's SCIP edges are stale and go; an unchanged dependent keeps its
+            // compiler-accurate edges and the heuristic pass skips the call sites they cover.
+            const keepScip = !changedPaths.has(f);
+            store.clearEdgesFrom(f, keepScip);
+            const r = resolver.resolveFile(f);
+            const scipKeys = keepScip ? store.scipEdgeKeys(f) : null;
+            const covered = (src: string, kind: string, line: number) => !!scipKeys?.size && scipKeys.has(`${src}|${kind}|${line}`);
+            store.insertEdges(scipKeys?.size ? r.edges.filter((e) => !covered(e.src, e.kind, e.line)) : r.edges);
+            for (const u of r.unresolved) {
+              if (covered(u.scope, u.kind === 'call' || u.kind === 'new' ? 'calls' : u.kind, u.line)) continue;
+              insUnres.run(f, u.line, u.scope, u.kind, u.name, u.qualifier, JSON.stringify(u.candidates));
+            }
+            unresolvedCount += r.unresolved.length;
+            importsResolved += r.importsResolved;
+            importsTotal += r.importsTotal;
+          }
+        });
+        n += batch.length;
+        if (files.length > 400) log(`resolved ${n}/${files.length}`);
+      }
+    }
+    log(`resolution done`);
+
+    const churn = changed.length + deleted.length;
+
+    // Push interface/base-class documentation down onto undocumented implementations, so an
+    // override is findable by the words that describe what it does. Needs the extends/implements
+    // edges above, and must run before embedding: the doc is part of the embedded text.
+    if (churn) {
+      const scope = opts.full || toResolve === fileSet ? undefined : changedPaths;
+      const n = inheritDocs(store, { files: scope });
+      if (n) log(`inherited docs for ${n} symbol(s)`);
+    }
+
+    if (churn) {
+      // A deleted or rewritten file can leave a config_key symbol (`env::X`) that nothing reads.
+      const orphans = store.prep("SELECT id, name FROM symbols WHERE kind = 'config_key' AND NOT EXISTS (SELECT 1 FROM edges WHERE edges.dst = symbols.id)").all() as { id: string; name: string }[];
+      if (orphans.length) {
+        store.transaction(() => {
+          const delFts = store.prep('DELETE FROM symbols_fts WHERE rowid IN (SELECT rowid FROM symbols_fts WHERE symbols_fts MATCH ? AND id = ?)');
+          const delSym = store.prep('DELETE FROM symbols WHERE id = ?');
+          for (const o of orphans) {
+            try {
+              delFts.run(`name:"${o.name.replace(/"/g, '""')}"`, o.id);
+            } catch {
+              /* a name the FTS tokenizer cannot phrase-match: the symbols row still goes */
+            }
+            delSym.run(o.id);
+          }
+        });
+        log(`removed ${orphans.length} unreferenced config key(s)`);
+      }
+    }
+
+    // Phase 3: metrics + communities. Both start from loadRows(), which reads every symbol and
+    // every edge, so a one-file edit must not pay for them. Small changes only set a flag; the
+    // recompute happens once enough has drifted, on a full/large run, or when `overview` asks.
+    let analysisStale = store.getMeta('analysis_stale') === '1';
+    let staleFiles = Number(store.getMeta('analysis_stale_files') ?? 0);
+    if (!opts.skipAnalysis && (churn || !store.getMeta('analyzed_at'))) {
+      const pendingStale = staleFiles + churn;
+      // A full rebuild, or a run that re-resolved the whole corpus, always recomputes.
+      const defer = !opts.full && toResolve !== fileSet && !!store.getMeta('analyzed_at') && churn > 0 && churn <= INCREMENTAL_ANALYSIS_MAX_FILES && pendingStale <= ANALYSIS_STALE_LIMIT;
+      if (defer) {
+        staleFiles = pendingStale;
+        analysisStale = true;
+        store.setMeta('analysis_stale', '1');
+        store.setMeta('analysis_stale_files', String(staleFiles));
+        log(`analysis deferred (${staleFiles} file(s) changed since the last run)`);
+      } else {
+        log('computing metrics');
+        const rows = loadRows(store);
+        computeMetrics(store, rows);
+        log('detecting communities');
+        computeCommunities(store, rows);
+        store.setMeta('analyzed_at', String(Date.now()));
+        staleFiles = 0;
+        analysisStale = false;
+        store.setMeta('analysis_stale', '0');
+        store.setMeta('analysis_stale_files', '0');
+        log('analysis done');
+      }
+    }
+
+    // Auto-embed: keep vectors current for anyone who has already opted into the semantic tier
+    // (a non-empty `embeddings` table), without ever downloading the model or costing anything
+    // when nothing changed. embedRepo() itself is incremental by text hash, so this only pays
+    // for the symbols a small edit actually touched.
+    if ((opts.embed ?? true) && churn > 0 && hasVectors(store) && modelCached()) {
+      try {
+        const stats = await embedRepo(store, { allowDownload: false, log });
+        if (stats.embedded || stats.removed) log(`auto-embed: ${stats.embedded} embedded, ${stats.removed} orphan(s) removed`);
+      } catch (err) {
+        log(`auto-embed skipped: ${(err as Error).message}`);
+      }
+    }
+
+    store.setMeta('root', opts.root);
+    // `indexed_at` is a content stamp: consumers cache the in-memory graph on it, so a run that
+    // found nothing to do must leave it alone. `checked_at` records that we did look.
+    store.setMeta('checked_at', String(Date.now()));
+    if (churn) {
+      store.setMeta('indexed_at', String(Date.now()));
+      store.setMeta('generation', String(Number(store.getMeta('generation') ?? 0) + 1));
+    } else if (!store.getMeta('indexed_at')) {
+      store.setMeta('indexed_at', String(Date.now()));
+      store.setMeta('generation', String(Number(store.getMeta('generation') ?? 0) + 1));
+    }
+    const head = gitHead(opts.root);
+    if (head) store.setMeta('git_head', head);
+
+    return {
+      files: scanned.length,
+      changed: changed.length,
+      deleted: deleted.length,
+      resolved: toResolve.size,
+      symbols: store.countSymbols(),
+      edges: store.countEdges(),
+      unresolved: unresolvedCount,
+      importsResolved,
+      importsTotal,
+      ms: Math.round(performance.now() - t0),
+      analysisStale,
+      skippedGenerated,
+      skippedGrammar,
+    };
+  } finally {
+    store.close();
+  }
+}

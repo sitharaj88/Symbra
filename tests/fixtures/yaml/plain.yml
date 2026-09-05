@@ -1,0 +1,5 @@
+some:
+  arbitrary: value
+  list:
+    - a
+    - b
