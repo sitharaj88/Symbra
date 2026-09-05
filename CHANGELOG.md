@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.4 (2026-09-05)
+## 1.0.3 (2026-09-05)
 
 Redesigned map. `symbra viz` gets a top bar, sidebar and details drawer around the same offline
 HTML file, replacing the bare canvas with a navigable interface for subsystem and symbol exploration.
