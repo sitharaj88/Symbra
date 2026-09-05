@@ -49,6 +49,20 @@ function mcpServerEntry(root?: string, commandOverride?: string): { command: str
   return { command: 'npx', args: root ? ['-y', 'symbra', '-C', root, 'serve'] : ['-y', 'symbra', 'serve'] };
 }
 
+/**
+ * Renders a value as a TOML string. Uses a literal string (`'…'`) when the value has no single
+ * quote or control character — this is the simplest way to carry a Windows path like
+ * `C:\Users\runner\...` verbatim, since literal strings do no escaping at all. Otherwise falls
+ * back to a basic string with `\` and `"` escaped, which is always valid.
+ */
+export function tomlString(value: string): string {
+  if (!value.includes("'") && !/[\x00-\x1f\x7f]/.test(value)) {
+    return `'${value}'`;
+  }
+  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
 /** Sets the `symbra` server entry. */
 function setServerEntry(servers: Record<string, unknown>, entry: unknown): void {
   servers.symbra = entry;
@@ -150,7 +164,7 @@ export async function install(opts: InstallOptions): Promise<void> {
         if (/\[mcp_servers\.symbra\]/.test(toml)) {
           log(`${path} already has symbra`);
         } else {
-          toml = toml.trimEnd() + `\n\n[mcp_servers.symbra]\ncommand = "${globalEntry.command}"\nargs = [${globalEntry.args.map((a) => `"${a}"`).join(', ')}]\n`;
+          toml = toml.trimEnd() + `\n\n[mcp_servers.symbra]\ncommand = ${tomlString(globalEntry.command)}\nargs = [${globalEntry.args.map((a) => tomlString(a)).join(', ')}]\n`;
           mkdirSync(dirname(path), { recursive: true });
           writeFileSync(path, toml);
           log(`wrote ${path}`);

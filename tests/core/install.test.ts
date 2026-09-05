@@ -1,21 +1,33 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { install } from '../../src/install/install.js';
+import { install, tomlString } from '../../src/install/install.js';
 import { readJsonc, stripJsonc } from '../../src/index/project.js';
 import { makeRepo, type TempRepo } from './helpers.js';
 
 const repos: TempRepo[] = [];
 let savedHome: string | undefined;
+let savedUserProfile: string | undefined;
 function repo(files: Record<string, string> = {}): TempRepo {
   const r = makeRepo(files);
   repos.push(r);
   return r;
 }
+/** os.homedir() reads USERPROFILE on Windows and HOME elsewhere, so both must be overridden. */
+function setHome(home: string) {
+  savedHome = process.env.HOME;
+  savedUserProfile = process.env.USERPROFILE;
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+}
 afterEach(() => {
   if (savedHome !== undefined) {
     process.env.HOME = savedHome;
     savedHome = undefined;
+  }
+  if (savedUserProfile !== undefined) {
+    process.env.USERPROFILE = savedUserProfile;
+    savedUserProfile = undefined;
   }
   while (repos.length) repos.pop()!.cleanup();
 });
@@ -56,16 +68,18 @@ describe('install', () => {
 
   it('names the repository root for configs that live outside it', async () => {
     const r = repo({});
-    savedHome = process.env.HOME;
     const home = join(r.root, '..', 'home');
     mkdirSync(home, { recursive: true });
-    process.env.HOME = home;
+    setHome(home);
 
     await install({ root: r.root, tools: ['codex', 'windsurf', 'vscode'], global: false });
 
     // Codex reads ~/.codex/config.toml with an arbitrary cwd, so the root must be explicit.
+    // The path is rendered as a TOML string (a literal string on a plain path, an escaped basic
+    // string if it ever contains a quote), so compare against that rendering rather than the
+    // raw path — on Windows the root contains backslashes, which a raw comparison would miss.
     const toml = readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
-    expect(toml).toContain(`"-C", "${r.root}"`);
+    expect(toml).toContain(`${tomlString('-C')}, ${tomlString(r.root)}`);
     const windsurf = JSON.parse(readFileSync(join(home, '.codeium', 'windsurf', 'mcp_config.json'), 'utf8'));
     expect(windsurf.mcpServers.symbra.args).toEqual(['-y', 'symbra', '-C', r.root, 'serve']);
     // A project-scoped config runs with the repository as cwd and needs no root.
@@ -75,10 +89,9 @@ describe('install', () => {
 
   it('writes the root into the user-level Claude config with --global', async () => {
     const r = repo({});
-    savedHome = process.env.HOME;
     const home = join(r.root, '..', 'home2');
     mkdirSync(home, { recursive: true });
-    process.env.HOME = home;
+    setHome(home);
     await install({ root: r.root, tools: ['claude'], global: true });
     const claude = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'));
     expect(claude.mcpServers.symbra.args).toEqual(['-y', 'symbra', '-C', r.root, 'serve']);
@@ -174,5 +187,17 @@ describe('install', () => {
 
     const vscode = JSON.parse(readFileSync(join(r.root, '.vscode', 'mcp.json'), 'utf8'));
     expect(vscode.servers.symbra).toEqual({ type: 'stdio', command: 'node', args: ['/path/to/bin/symbra.js', 'serve'] });
+  });
+});
+
+describe('tomlString', () => {
+  it('renders a plain path as a TOML literal string, backslashes and all', () => {
+    // Literal strings do no escaping, so a Windows path like `C:\Users\runner\...` round-trips
+    // verbatim instead of needing `\\` escapes.
+    expect(tomlString('C:\\Users\\runner\\AppData\\Local\\Temp\\repo')).toBe("'C:\\Users\\runner\\AppData\\Local\\Temp\\repo'");
+  });
+
+  it('falls back to an escaped basic string when the value contains a single quote', () => {
+    expect(tomlString(`C:\\Users\\o'brien\\repo`)).toBe('"C:\\\\Users\\\\o\'brien\\\\repo"');
   });
 });
