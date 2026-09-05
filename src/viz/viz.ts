@@ -96,14 +96,16 @@ canvas{position:fixed;top:44px;left:0;right:0;bottom:0;display:block;cursor:grab
 #side h3{margin:0 0 6px;font-size:14px;word-break:break-all}#side .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:10px}
 #side code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:#c0caf5}
 #side a{color:var(--accent);text-decoration:none}#side li{list-style:none;margin:2px 0}#side ul{padding:0;margin:0}
-#legend{position:fixed;left:12px;bottom:12px;background:rgba(23,26,33,.92);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-height:40vh;overflow:auto;font-size:12px;z-index:2}
-#legend div{display:flex;align-items:center;gap:6px;cursor:pointer;padding:1px 0}#legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+#legend{position:fixed;left:12px;bottom:12px;background:rgba(23,26,33,.92);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-width:320px;max-height:40vh;overflow:auto;font-size:12px;z-index:2}
+#legendBody>div{display:flex;align-items:center;gap:6px;cursor:pointer;padding:1px 0}#legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+#legendToggle{cursor:pointer;font-weight:600;color:var(--muted);user-select:none;margin-bottom:4px}
+#legend.collapsed #legendBody{display:none}
 #hint{position:fixed;left:12px;top:56px;color:var(--muted);font-size:12px;z-index:2}
 </style></head><body>
 <div id="top"><b>Symbra</b><span class="muted">${escapeHtml(data.root.split('/').pop() ?? '')} · ${data.stats.files} files · ${data.stats.symbols} symbols · ${data.stats.edges} edges</span>
 <input id="q" placeholder="search symbols…" autocomplete="off"><select id="kind"><option value="">all kinds</option></select><button id="back">◀ subsystems</button><button id="fit">fit</button></div>
 <div id="hint">click a subsystem to expand · click a symbol for details · drag to pan · wheel to zoom</div>
-<canvas id="c"></canvas><div id="legend"></div><div id="side"></div>
+<canvas id="c"></canvas><div id="legend"><div id="legendToggle">▾ legend</div><div id="legendBody"></div></div><div id="side"></div>
 <script id="data" type="application/json">${json}</script>
 <script>
 (()=>{
@@ -118,21 +120,38 @@ const adj=new Map();D.edges.forEach(([a,b,k])=>{(adj.get(a)||adj.set(a,[]).get(a
 const kinds=[...new Set(D.nodes.map(n=>n.kind))].sort();for(const k of kinds){const o=document.createElement('option');o.value=k;o.textContent=k;document.getElementById('kind').appendChild(o)}
 function layout(ns,ls,iters){const n=ns.length;if(!n)return;const isComm=mode==='comm';
 if(isComm){
-const degree=new Array(n).fill(0);for(const [i,j] of ls){degree[i]++;degree[j]++}
-const linkedIdx=[],unlinkedIdx=[];for(let i=0;i<n;i++)(degree[i]>0?linkedIdx:unlinkedIdx).push(i);
+const coreIdx=[],periphIdx=[];for(let i=0;i<n;i++)(ns[i].peripheral?periphIdx:coreIdx).push(i);
+const degree=new Map();for(const [i,j] of ls){if(!ns[i].peripheral&&!ns[j].peripheral){degree.set(i,(degree.get(i)||0)+1);degree.set(j,(degree.get(j)||0)+1)}}
+const linkedIdx=[],unlinkedIdx=[];for(const i of coreIdx)((degree.get(i)||0)>0?linkedIdx:unlinkedIdx).push(i);
 const nl=linkedIdx.length||1;const Rlinked=Math.sqrt(nl)*30+60;const Rcap=Rlinked*1.6;
 linkedIdx.forEach((i,k)=>{const a=k*2.399963;const r=Rlinked*Math.sqrt((k+.5)/nl);ns[i].x=Math.cos(a)*r;ns[i].y=Math.sin(a)*r;ns[i].vx=0;ns[i].vy=0});
 const nu=unlinkedIdx.length||1;
 unlinkedIdx.forEach((i,k)=>{const a=k*2.399963+1.7;const r=Rlinked*0.75+(Rcap-Rlinked*0.75)*Math.sqrt((k+.5)/nu);ns[i].x=Math.cos(a)*r;ns[i].y=Math.sin(a)*r;ns[i].vx=0;ns[i].vy=0});
-}else{const R=Math.sqrt(n)*28+60;ns.forEach((p,i)=>{const a=i*2.399963;const r=R*Math.sqrt((i+.5)/n);p.x=Math.cos(a)*r;p.y=Math.sin(a)*r;p.vx=0;p.vy=0});}
-for(let it=0;it<iters;it++){const t=1-it/iters;const rep=1200*t+80;for(let i=0;i<n;i++){const a=ns[i];for(let j=i+1;j<n;j++){const b=ns[j];let dx=a.x-b.x,dy=a.y-b.y;let d2=dx*dx+dy*dy+0.01;const rSum=a.r+b.r;const sizeK=1+rSum*0.05;if(d2>90000*sizeK*sizeK)continue;const d=Math.sqrt(d2);const f=(rep*sizeK)/d2;let fx=dx*f,fy=dy*f;const minSep=rSum+(isComm?28:24);if(d<minSep){const push=(minSep-d)*2.5;fx+=dx/d*push;fy+=dy/d*push}a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy}}
-for(const [i,j,w] of ls){const a=ns[i],b=ns[j];const dx=b.x-a.x,dy=b.y-a.y;const d=Math.sqrt(dx*dx+dy*dy)+0.01;const rest=isComm?(a.r+b.r+90):(a.r+b.r+30);const strength=isComm?0.008:0.02;const f=(d-rest)*strength*(w||1);a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f}
-for(const p of ns){const gk=isComm?0.012/(1+p.r/20):0.004;p.vx-=p.x*gk;p.vy-=p.y*gk;p.x+=p.vx*0.6;p.y+=p.vy*0.6;p.vx*=0.5;p.vy*=0.5}}
-if(isComm){for(let sweep=0;sweep<20;sweep++){let any=false;for(let i=0;i<n;i++){const a=ns[i];for(let j=i+1;j<n;j++){const b=ns[j];const minD=a.r+b.r+28;let dx=b.x-a.x,dy=b.y-a.y;let d=Math.sqrt(dx*dx+dy*dy);if(d<1e-3){const ang=(i*7+j*13)%6.283;dx=Math.cos(ang);dy=Math.sin(ang);d=1e-3}if(d<minD){const overlap=(minD-d)/2;const ux=dx/d,uy=dy/d;a.x-=ux*overlap;a.y-=uy*overlap;b.x+=ux*overlap;b.y+=uy*overlap;any=true}}}if(!any)break}}}
+const coreLinks=ls.filter(([i,j])=>!ns[i].peripheral&&!ns[j].peripheral);
+for(let it=0;it<iters;it++){const t=1-it/iters;const rep=1200*t+80;
+for(let a=0;a<coreIdx.length;a++){const A=ns[coreIdx[a]];for(let b=a+1;b<coreIdx.length;b++){const B=ns[coreIdx[b]];let dx=A.x-B.x,dy=A.y-B.y;let d2=dx*dx+dy*dy+0.01;const rSum=A.r+B.r;const sizeK=1+rSum*0.05;if(d2>90000*sizeK*sizeK)continue;const d=Math.sqrt(d2);const f=(rep*sizeK)/d2;let fx=dx*f,fy=dy*f;const minSep=rSum+28;if(d<minSep){const push=(minSep-d)*2.5;fx+=dx/d*push;fy+=dy/d*push}A.vx+=fx;A.vy+=fy;B.vx-=fx;B.vy-=fy}}
+for(const [i,j,w] of coreLinks){const A=ns[i],B=ns[j];const dx=B.x-A.x,dy=B.y-A.y;const d=Math.sqrt(dx*dx+dy*dy)+0.01;const rest=A.r+B.r+90;const strength=0.008;const f=(d-rest)*strength*(w||1);A.vx+=dx/d*f;A.vy+=dy/d*f;B.vx-=dx/d*f;B.vy-=dy/d*f}
+for(const i of coreIdx){const p=ns[i];const gk=0.012/(1+p.r/20);p.vx-=p.x*gk;p.vy-=p.y*gk;p.x+=p.vx*0.6;p.y+=p.vy*0.6;p.vx*=0.5;p.vy*=0.5}}
+for(let sweep=0;sweep<20;sweep++){let any=false;for(let a=0;a<coreIdx.length;a++){const A=ns[coreIdx[a]];for(let b=a+1;b<coreIdx.length;b++){const B=ns[coreIdx[b]];const minD=A.r+B.r+28;let dx=B.x-A.x,dy=B.y-A.y;let d=Math.sqrt(dx*dx+dy*dy);if(d<1e-3){const ang=(a*7+b*13)%6.283;dx=Math.cos(ang);dy=Math.sin(ang);d=1e-3}if(d<minD){const overlap=(minD-d)/2;const ux=dx/d,uy=dy/d;A.x-=ux*overlap;A.y-=uy*overlap;B.x+=ux*overlap;B.y+=uy*overlap;any=true}}}if(!any)break}
+let ccx=0,ccy=0;for(const i of coreIdx){ccx+=ns[i].x;ccy+=ns[i].y}if(coreIdx.length){ccx/=coreIdx.length;ccy/=coreIdx.length}
+let coreR=60;for(const i of coreIdx){const p=ns[i];const d=Math.hypot(p.x-ccx,p.y-ccy)+p.r;if(d>coreR)coreR=d}
+const periphSorted=[...periphIdx].sort((x,y)=>(ns[y].size||0)-(ns[x].size||0));
+const ringR=coreR+80;const np=periphSorted.length||1;
+periphSorted.forEach((i,k)=>{const a=(k/np)*6.283185+0.5;const jitter=(k%2)*24;ns[i].x=ccx+Math.cos(a)*(ringR+jitter);ns[i].y=ccy+Math.sin(a)*(ringR+jitter);ns[i].vx=0;ns[i].vy=0});
+for(let sweep=0;sweep<20;sweep++){let any=false;
+for(let a=0;a<periphSorted.length;a++){const A=ns[periphSorted[a]];
+const dOrigin=Math.hypot(A.x-ccx,A.y-ccy)||1e-3;const minFromCore=coreR+A.r+20;if(dOrigin<minFromCore){A.x=ccx+(A.x-ccx)/dOrigin*minFromCore;A.y=ccy+(A.y-ccy)/dOrigin*minFromCore;any=true}
+for(let b=a+1;b<periphSorted.length;b++){const B=ns[periphSorted[b]];const minD=A.r+B.r+16;let dx=B.x-A.x,dy=B.y-A.y;let d=Math.sqrt(dx*dx+dy*dy);if(d<1e-3){const ang=(a*7+b*13)%6.283;dx=Math.cos(ang);dy=Math.sin(ang);d=1e-3}if(d<minD){const overlap=(minD-d)/2;const ux=dx/d,uy=dy/d;A.x-=ux*overlap;A.y-=uy*overlap;B.x+=ux*overlap;B.y+=uy*overlap;any=true}}}
+if(!any)break}
+}else{const R=Math.sqrt(n)*28+60;ns.forEach((p,i)=>{const a=i*2.399963;const r=R*Math.sqrt((i+.5)/n);p.x=Math.cos(a)*r;p.y=Math.sin(a)*r;p.vx=0;p.vy=0});
+for(let it=0;it<iters;it++){const t=1-it/iters;const rep=1200*t+80;for(let i=0;i<n;i++){const a=ns[i];for(let j=i+1;j<n;j++){const b=ns[j];let dx=a.x-b.x,dy=a.y-b.y;let d2=dx*dx+dy*dy+0.01;const rSum=a.r+b.r;const sizeK=1+rSum*0.05;if(d2>90000*sizeK*sizeK)continue;const d=Math.sqrt(d2);const f=(rep*sizeK)/d2;let fx=dx*f,fy=dy*f;const minSep=rSum+24;if(d<minSep){const push=(minSep-d)*2.5;fx+=dx/d*push;fy+=dy/d*push}a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy}}
+for(const [i,j,w] of ls){const a=ns[i],b=ns[j];const dx=b.x-a.x,dy=b.y-a.y;const d=Math.sqrt(dx*dx+dy*dy)+0.01;const rest=a.r+b.r+30;const strength=0.02;const f=(d-rest)*strength*(w||1);a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f}
+for(const p of ns){const gk=0.004;p.vx-=p.x*gk;p.vy-=p.y*gk;p.x+=p.vx*0.6;p.y+=p.vy*0.6;p.vx*=0.5;p.vy*=0.5}}}
+}
 function setHash(h){try{history.replaceState(null,'',h?location.pathname+location.search+'#'+h:location.pathname+location.search)}catch(e){}}
 function parseHash(){const m=/(?:^|[#&])c=(-?\d+)/.exec(location.hash);return m?parseInt(m[1],10):null}
-function showComms(){mode='comm';focus=null;sel=null;const cs=D.communities;nodes=cs.map(c=>{const r0=c.size<3?5:8+Math.sqrt(c.size)*2.2;const r=c.peripheral?r0*0.6:r0;return{id:'c'+c.id,c:c.id,label:c.label,size:c.size,r,tiny:c.size<3||c.peripheral,peripheral:c.peripheral,comm:c}});const idx=new Map(cs.map((c,i)=>[c.id,i]));links=D.commEdges.filter(([a,b])=>idx.has(a)&&idx.has(b)).map(([a,b,w])=>[idx.get(a),idx.get(b),Math.min(3,Math.log2(w+1))]);layout(nodes,links,400);fit();placeLabels();fit();draw();legend();side.style.display='none';setHash('')}
-function showComm(cid){mode='sym';focus=cid;sel=null;const ids=byComm.get(cid)||[];const local=new Map(ids.map((i,j)=>[i,j]));nodes=ids.map(i=>{const n=D.nodes[i];return{id:n.id,gi:i,n,c:n.c,r:4+Math.min(14,Math.sqrt(n.pr+n.callers)*1.6)}});links=[];for(const [a,b,k] of D.edges){const la=local.get(a),lb=local.get(b);if(la!==undefined&&lb!==undefined)links.push([la,lb,1,k])}layout(nodes,links,300);labelBoxes=[];fit();legend();side.style.display='none';setHash('c='+cid)}
+function showComms(){mode='comm';focus=null;sel=null;const cs=D.communities;nodes=cs.map(c=>{const r0=c.size<3?5:8+Math.sqrt(c.size)*2.2;const r=c.peripheral?r0*0.6:r0;return{id:'c'+c.id,c:c.id,label:c.label,size:c.size,r,tiny:c.size<3||c.peripheral,peripheral:c.peripheral,comm:c}});const idx=new Map(cs.map((c,i)=>[c.id,i]));links=D.commEdges.filter(([a,b])=>idx.has(a)&&idx.has(b)).map(([a,b,w])=>[idx.get(a),idx.get(b),Math.min(3,Math.log2(w+1))]);layout(nodes,links,400);legend();fit();placeLabels();fit();draw();side.style.display='none';setHash('')}
+function showComm(cid){mode='sym';focus=cid;sel=null;const ids=byComm.get(cid)||[];const local=new Map(ids.map((i,j)=>[i,j]));nodes=ids.map(i=>{const n=D.nodes[i];return{id:n.id,gi:i,n,c:n.c,r:4+Math.min(14,Math.sqrt(n.pr+n.callers)*1.6)}});links=[];for(const [a,b,k] of D.edges){const la=local.get(a),lb=local.get(b);if(la!==undefined&&lb!==undefined)links.push([la,lb,1,k])}layout(nodes,links,300);labelBoxes=[];legend();fit();side.style.display='none';setHash('c='+cid)}
 function boxHitsCircle(x0,y0,x1,y1,cx,cy,cr){const nx=Math.max(x0,Math.min(cx,x1));const ny=Math.max(y0,Math.min(cy,y1));const dx=cx-nx,dy=cy-ny;return dx*dx+dy*dy<cr*cr}
 function placeLabels(){
 if(mode!=='comm'){for(const p of nodes){p.showLabel=true;p.lx=p.r+3/view.k;p.ly=0;p.leader=false;p.labelFs=null}labelBoxes=[];return}
@@ -178,8 +197,24 @@ labelBoxes=placed;
 function fit(){if(!nodes.length)return;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
 const core=mode==='comm'?nodes.filter(p=>!p.peripheral):nodes;
 const boundNodes=(mode==='comm'&&core.length>=3)?core:nodes;
-for(const p of boundNodes){x0=Math.min(x0,p.x-p.r);y0=Math.min(y0,p.y-p.r);x1=Math.max(x1,p.x+p.r);y1=Math.max(y1,p.y+p.r)}if(mode==='comm')for(const b of labelBoxes){x0=Math.min(x0,b.x0);y0=Math.min(y0,b.y0);x1=Math.max(x1,b.x1);y1=Math.max(y1,b.y1)}const pad=60;const k=Math.min((W-(side.style.display==='block'?340:0)-pad)/(x1-x0+1),(H-pad)/(y1-y0+1),3);view.k=k;view.x=W/2-(x0+x1)/2*k-(side.style.display==='block'?170:0);view.y=H/2-(y0+y1)/2*k;draw()}
-function legend(){const L=document.getElementById('legend');L.innerHTML='';const cs=mode==='comm'?[...D.communities].sort((a,b)=>(a.peripheral===b.peripheral?0:a.peripheral?1:-1)).slice(0,24):D.communities.filter(c=>c.id===focus);for(const c of cs){const d=document.createElement('div');if(c.peripheral)d.style.opacity='0.6';d.innerHTML='<i style="background:'+col(c.id)+'"></i><span>#'+c.id+' '+esc(c.label)+' <span style="color:#8b93a7">('+c.size+')</span>'+(c.peripheral?' <span style="color:#8b93a7">[peripheral]</span>':'')+'</span>';d.onclick=()=>showComm(c.id);L.appendChild(d)}}
+for(const p of boundNodes){x0=Math.min(x0,p.x-p.r);y0=Math.min(y0,p.y-p.r);x1=Math.max(x1,p.x+p.r);y1=Math.max(y1,p.y+p.r)}
+if(mode==='comm')for(const b of labelBoxes){x0=Math.min(x0,b.x0);y0=Math.min(y0,b.y0);x1=Math.max(x1,b.x1);y1=Math.max(y1,b.y1)}
+const pad=60;
+const legendEl=document.getElementById('legend');
+const legendW=legendEl?legendEl.offsetWidth+16:0;
+const legendH=legendEl?legendEl.offsetHeight+16:0;
+const sideW=side.style.display==='block'?340:0;
+const availX0=legendW,availX1=W-sideW,availY0=0,availY1=H-legendH;
+const availW=Math.max(80,availX1-availX0-pad);
+const availH=Math.max(80,availY1-availY0-pad);
+let k=Math.min(availW/(x1-x0+1),availH/(y1-y0+1),3);
+if(boundNodes.length){let maxR=0;for(const p of boundNodes)if(p.r>maxR)maxR=p.r;const capDiam=W*0.12;if(maxR*2*k>capDiam)k=capDiam/(maxR*2)}
+view.k=k;
+const cx=(availX0+availX1)/2,cy=(availY0+availY1)/2;
+view.x=cx-(x0+x1)/2*k;
+view.y=cy-(y0+y1)/2*k;
+draw()}
+function legend(){const L=document.getElementById('legendBody');L.innerHTML='';const cs=mode==='comm'?[...D.communities].sort((a,b)=>(a.peripheral===b.peripheral?0:a.peripheral?1:-1)).slice(0,24):D.communities.filter(c=>c.id===focus);for(const c of cs){const d=document.createElement('div');if(c.peripheral)d.style.opacity='0.6';d.innerHTML='<i style="background:'+col(c.id)+'"></i><span>#'+c.id+' '+esc(c.label)+' <span style="color:#8b93a7">('+c.size+')</span>'+(c.peripheral?' <span style="color:#8b93a7">[peripheral]</span>':'')+'</span>';d.onclick=()=>showComm(c.id);L.appendChild(d)}}
 function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 function visible(p){if(mode!=='sym')return true;if(filterKind&&p.n.kind!==filterKind)return false;if(query&&!(p.n.fqn.toLowerCase().includes(query)||p.n.file.toLowerCase().includes(query)))return false;return true}
 function draw(){ctx.clearRect(0,0,W,H);ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.k,view.k);
@@ -197,6 +232,11 @@ cv.addEventListener('wheel',e=>{e.preventDefault();const f=Math.exp(-e.deltaY*0.
 function detail(p){const n=p.n;const c=D.communities.find(c=>c.id===n.c);const rows=(adj.get(p.gi)||[]);const outs=rows.filter(r=>r[2]===0),ins=rows.filter(r=>r[2]===1);const li=(r)=>{const m=D.nodes[r[0]];return'<li><a href="#" data-g="'+r[0]+'">'+esc(m.fqn)+'</a> <span style="color:#8b93a7">'+r[1]+'</span></li>'};
 side.innerHTML='<h3>'+esc(n.fqn)+'</h3><div><span style="color:'+col(n.c)+'">●</span> '+esc(n.kind)+' · <a href="vscode://file/'+encodeURI(D.root+'/'+n.file)+':'+n.line+'">'+esc(n.file)+':'+n.line+'-'+n.endLine+'</a></div>'+(n.sig?'<div class="k">signature</div><code>'+esc(n.sig)+'</code>':'')+(n.doc?'<div class="k">doc</div><div>'+esc(n.doc)+'</div>':'')+'<div class="k">importance</div><div>pagerank '+n.pr+' · callers '+n.callers+' · subsystem #'+n.c+' '+esc(c?c.label:'')+'</div>'+(ins.length?'<div class="k">incoming ('+ins.length+')</div><ul>'+ins.slice(0,40).map(li).join('')+'</ul>':'')+(outs.length?'<div class="k">outgoing ('+outs.length+')</div><ul>'+outs.slice(0,40).map(li).join('')+'</ul>':'');side.style.display='block';
 side.querySelectorAll('a[data-g]').forEach(a=>a.onclick=ev=>{ev.preventDefault();const g=+a.dataset.g;const m=D.nodes[g];if(m.c!==focus)showComm(m.c);const i=nodes.findIndex(q=>q.gi===g);if(i>=0){sel=i;detail(nodes[i]);view.x=W/2-nodes[i].x*view.k-170;view.y=H/2-nodes[i].y*view.k;draw()}})}
+const legendToggle=document.getElementById('legendToggle');
+let legendCollapsed=true;try{const v=localStorage.getItem('symbraLegendCollapsed');if(v!==null)legendCollapsed=v==='1'}catch(e){}
+function syncLegendUI(){document.getElementById('legend').classList.toggle('collapsed',legendCollapsed);legendToggle.textContent=(legendCollapsed?'▸':'▾')+' legend'}
+legendToggle.onclick=()=>{legendCollapsed=!legendCollapsed;try{localStorage.setItem('symbraLegendCollapsed',legendCollapsed?'1':'0')}catch(e){}syncLegendUI();fit()};
+syncLegendUI();
 document.getElementById('back').onclick=showComms;document.getElementById('fit').onclick=fit;
 document.getElementById('kind').onchange=e=>{filterKind=e.target.value;draw()};
 let qFocused=false;const qEl=document.getElementById('q');qEl.value='';qEl.addEventListener('focus',()=>{qFocused=true});
