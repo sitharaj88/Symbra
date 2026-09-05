@@ -29,7 +29,7 @@ npx symbra explore "where are timeouts configured"
 | Storage | pretty-printed JSON, 512 MiB cap, parsed whole on every read | SQLite with FTS5, incremental per-file upsert |
 | Freshness | full re-extract on every watch event | only changed files and their dependents |
 | Agent integration | 700 KB of duplicated skill prompts, MCP server not registered at install | MCP server registered at install, 9 tools, short marker-fenced guidance |
-| Visualisation | vis-network from a CDN, breaks above 5,000 nodes | self-contained canvas map with semantic zoom (subsystems → symbols), works offline |
+| Visualisation | vis-network from a CDN, breaks above 5,000 nodes | self-contained offline map with search, filters, a details drawer and light/dark themes, semantic zoom from subsystems to symbols |
 | Install | Python, `graphifyy` package, PATH setup, interpreter sniffing | `npx symbra` |
 
 Measured on the same machine (Apple M-series, 8 cores):
@@ -101,7 +101,7 @@ symbra impact [name] [--base ref]    blast radius of a symbol or of the git diff
 symbra overview                      subsystems, hubs, entry points, env vars, import cycles
 symbra embed                         compute local semantic vectors (optional tier)
 symbra import-scip <index.scip>      upgrade edges with compiler-accurate references
-symbra viz [--open]                  self-contained HTML map at .symbra/map.html
+symbra viz [--open]                  self-contained HTML map at .symbra/map.html, with search, filters and a details drawer
 symbra grammars [names…|--all|--list]  prefetch or show status of tree-sitter grammars
 symbra watch                         re-index as files change
 symbra serve                         MCP server over stdio (what the agents use)
@@ -143,6 +143,15 @@ tests to run:
 | `status(reindex?)` | freshness and counts |
 
 Every response starts with `[symbra] index 3m ago, checked 2s ago @ 1a2b3c4d · 1802 symbols · 3779 edges` — when the index was last written and when it was last verified against the working tree, which are the same clock only when the last check found a change. Symbols whose file changed after indexing are marked STALE.
+
+## Map
+
+`symbra viz --open` builds a self-contained HTML file and opens it in your browser — no server, no
+network calls. It starts at a subsystem overview (gradient spheres sized by member count, edges
+weighted by call traffic) and drills into a symbol-level graph with importance-sized nodes,
+coloured edge kinds and a details drawer showing overview, relations and syntax-highlighted
+source, with a link to open the symbol in VS Code. Search with `/`, clear with `Esc`, fit the
+view with `f`, toggle light/dark with `t`, and move between nodes with the arrow keys and `Enter`.
 
 ## Optional: semantic search
 
