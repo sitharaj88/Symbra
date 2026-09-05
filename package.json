@@ -1,6 +1,6 @@
 {
   "name": "symbra",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Local-first, live code intelligence for AI coding agents. Weaves your codebase into a queryable symbol graph (SQLite + tree-sitter, zero native deps, zero LLM) and serves it over MCP.",
   "license": "Apache-2.0",
   "author": "Sitharaj Seenivasan <sitharaj.info@gmail.com> (https://sitharaj.in)",

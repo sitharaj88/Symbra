@@ -64,6 +64,8 @@ export interface LanguageSupport {
   doc(node: Node, ctx: WalkContext): string;
   /** Module-level doc. */
   moduleDoc?(root: Node, ctx: WalkContext): string;
+  /** The package/namespace the file declares (JVM `package a.b.c`), used for corpus-wide package scope. */
+  modulePackage?(root: Node, ctx: WalkContext): string;
   /** Node types whose subtree should not be walked at all (e.g. string bodies). */
   skip?: Set<string>;
   /** Is this path a test file? */

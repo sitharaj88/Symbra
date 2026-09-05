@@ -2,7 +2,7 @@ import type { Node } from 'web-tree-sitter';
 import type { Import } from '../ir/types.js';
 import type { DefSpec, LanguageSupport, WalkContext } from './types.js';
 import { oneLine, simpleTypeName, named, kids } from '../parse/walk.js';
-import { headerText, docComment, fileDoc, isConstantName, looksLikeType, jvmResolveModule } from './java.js';
+import { headerText, docComment, fileDoc, isConstantName, looksLikeType, jvmPackage, jvmResolveModule } from './java.js';
 
 const COMMENTS = new Set(['block_comment', 'comment']);
 const LEADING = new Set(['annotation', 'modifiers']);
@@ -396,6 +396,10 @@ export const scala: LanguageSupport = {
       }
     }
     return;
+  },
+
+  modulePackage(root) {
+    return jvmPackage(root);
   },
 
   resolveModule(source, fromPath, imp, project) {

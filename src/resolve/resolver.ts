@@ -21,6 +21,8 @@ const SELF_NAMES = new Set(['self', 'this', 'cls', 'super', 'parent', 'Self', 's
  * in Swift where it is the SwiftPM/Xcode target (see `scopeFiles`).
  */
 const PACKAGE_DIR_LANGS = new Set(['go', 'java', 'kotlin', 'scala', 'swift']);
+/** Languages whose files declare a `package` that is a real, corpus-wide scope. */
+const JVM_PKG_LANGS = new Set(['java', 'kotlin', 'scala', 'groovy']);
 /** How many extra files one C# `using X.Y;` may add as `imports` edges. */
 const NS_EDGE_CAP = 24;
 /** How many symbols one name imported from a C# namespace may bind to. */
@@ -55,6 +57,17 @@ function simpleName(t: string): string {
   const s = t.replace(/[*&\[\]]/g, '');
   const i = Math.max(s.lastIndexOf('.'), s.lastIndexOf('::'));
   return i >= 0 ? s.slice(i + 1).replace(/^:/, '') : s;
+}
+
+/** The `package` a module symbol's meta records, or ''. */
+function packageFromMeta(meta: string | null): string {
+  if (!meta || !meta.includes('"package"')) return '';
+  try {
+    const v = (JSON.parse(meta) as { package?: unknown }).package;
+    return typeof v === 'string' ? v : '';
+  } catch {
+    return '';
+  }
 }
 
 function familyOf(lang: string): string {
@@ -146,6 +159,11 @@ export class Resolver {
   private csByFqn = new Map<string, SymbolRow[]>();
   /** C#: `global using` rows, visible to every file under the declaring file's directory. */
   private globalUsings: { file: string; dir: string; imp: ImportRow }[] = [];
+  /** JVM: file -> its declared package, package -> its files, package -> exported top-level members. */
+  private pkgOfFile = new Map<string, string>();
+  private pkgFiles = new Map<string, string[]>();
+  private pkgMembers = new Map<string, SymbolRow[]>();
+  private scopeFilesCache = new Map<string, string[]>();
 
   constructor(
     readonly store: Store,
@@ -170,6 +188,10 @@ export class Resolver {
     this.nsFiles.clear();
     this.nsMembers.clear();
     this.csByFqn.clear();
+    this.pkgOfFile.clear();
+    this.pkgFiles.clear();
+    this.pkgMembers.clear();
+    this.scopeFilesCache.clear();
     this.globalUsings = [];
     for (const imp of this.store.prep('SELECT rowid, * FROM imports ORDER BY file, rowid').all() as ImportRow[]) {
       let arr = this.importsByFile.get(imp.file);
@@ -201,7 +223,20 @@ export class Resolver {
       let arr = this.fileSymbols.get(s.file);
       if (!arr) this.fileSymbols.set(s.file, (arr = []));
       arr.push(s);
-      if (s.kind === 'module') continue;
+      if (s.kind === 'module') {
+        // JVM: the declared package rides on the module symbol's meta (see `insertIR`); fall back
+        // to the path below a source root, for files whose package line the grammar missed.
+        if (JVM_PKG_LANGS.has(this.langOfFile.get(s.file) ?? '')) {
+          const pkg = packageFromMeta(s.meta) || this.packageFromPath(s.file);
+          if (pkg) {
+            this.pkgOfFile.set(s.file, pkg);
+            let pf = this.pkgFiles.get(pkg);
+            if (!pf) this.pkgFiles.set(pkg, (pf = []));
+            pf.push(s.file);
+          }
+        }
+        continue;
+      }
       let a = this.anyByName.get(s.name);
       if (!a) this.anyByName.set(s.name, (a = []));
       a.push(s);
@@ -213,6 +248,14 @@ export class Resolver {
         let e = this.exportedByName.get(s.name);
         if (!e) this.exportedByName.set(s.name, (e = []));
         e.push(s);
+      }
+      // JVM: index the package's exported top-level members by simple name, so `import a.b.C`
+      // finds C whatever the file is called (`Models.kt`) and wherever the source set lives.
+      const jpkg = this.pkgOfFile.get(s.file);
+      if (jpkg && s.exported && top) {
+        let pm = this.pkgMembers.get(jpkg);
+        if (!pm) this.pkgMembers.set(jpkg, (pm = []));
+        pm.push(s);
       }
       // C#: index namespaces so `using X.Y;` and same-namespace siblings reach real files. Both
       // the block form (types parented by a `namespace` symbol) and the file-scoped form (types
@@ -264,12 +307,93 @@ export class Resolver {
     if (!a.includes(file)) a.push(file);
   }
 
-  /** Files sharing `file`'s package scope: a Swift target, otherwise the directory. */
+  /**
+   * Files sharing `file`'s package scope: a Swift target, otherwise the directory plus — on the
+   * JVM — every other file declaring the same package. A Kotlin Multiplatform package is spread
+   * over source sets and modules (`common/src/commonMain/kotlin/...` and
+   * `androidApp/src/main/java/...`), so the directory alone is not the package.
+   */
   private scopeFiles(file: string): string[] {
     const t = this.swiftTargetOfFile.get(file);
     if (t) return this.swiftTargetFiles.get(t) ?? [];
+    const cached = this.scopeFilesCache.get(file);
+    if (cached) return cached;
     const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '';
-    return this.dirFiles.get(dir) ?? [];
+    const base = this.dirFiles.get(dir) ?? [];
+    const pkg = this.pkgOfFile.get(file);
+    const inPkg = pkg ? (this.pkgFiles.get(pkg) ?? []) : [];
+    let out = base;
+    if (inPkg.length) {
+      const seen = new Set(base);
+      out = [...base];
+      for (const f of inPkg) if (!seen.has(f)) (seen.add(f), out.push(f));
+    }
+    this.scopeFilesCache.set(file, out);
+    return out;
+  }
+
+  /** The JVM package of a path below a known source root: `x/src/main/java/a/b/C.java` -> `a.b`. */
+  private packageFromPath(file: string): string {
+    for (const r of this.project.jvmRoots ?? []) {
+      if (!file.startsWith(r + '/')) continue;
+      const rest = file.slice(r.length + 1);
+      const slash = rest.lastIndexOf('/');
+      return slash < 0 ? '' : rest.slice(0, slash).replace(/\//g, '.');
+    }
+    return '';
+  }
+
+  /**
+   * Symbols named by a dotted JVM name (`a.b.C`, `a.b.C.Inner`, `a.b.topLevelFn`) through the
+   * package index, independent of file names. Falls back to reading the prefix as a type and
+   * looking the last segment up as one of its members.
+   */
+  private jvmLookup(dotted: string, depth = 0): SymbolRow[] {
+    const dot = dotted.lastIndexOf('.');
+    if (dot < 0 || depth > 4) return [];
+    const pkg = dotted.slice(0, dot);
+    const name = dotted.slice(dot + 1);
+    const direct = (this.pkgMembers.get(pkg) ?? []).filter((s) => s.name === name);
+    if (direct.length) return direct;
+    const ownerSeg = pkg.slice(pkg.lastIndexOf('.') + 1);
+    if (!/^[A-Z]/.test(ownerSeg)) return [];
+    for (const owner of this.jvmLookup(pkg, depth + 1)) {
+      const mem = this.member(owner.id, name);
+      if (mem.length) return mem;
+    }
+    return [];
+  }
+
+  /** Representative file for a JVM import that no file name matched: the file declaring the type. */
+  private jvmImportTarget(file: string, imp: ImportRow): string | null {
+    const src = imp.source;
+    if (imp.namespace) {
+      // `import a.b.*`: any other file of the package; `import a.b.C.*`: the file declaring C.
+      const f = (this.pkgFiles.get(src) ?? []).find((p) => p !== file);
+      if (f) return f;
+    }
+    return this.jvmLookup(src).find((s) => s.file !== file)?.file ?? null;
+  }
+
+  /** `import a.b.*`: bind every exported top-level member of the package, and link their files. */
+  private bindJvmWildcard(file: string, imp: ImportRow, bindings: Map<string, Binding>, edges: Edge[]): void {
+    const members = this.pkgMembers.get(imp.source);
+    if (!members) return;
+    const byName = new Map<string, string[]>();
+    const files = new Set<string>();
+    for (const s of members) {
+      if (s.file === file) continue;
+      files.add(s.file);
+      let a = byName.get(s.name);
+      if (!a) byName.set(s.name, (a = []));
+      if (a.length < NS_IDS_CAP) a.push(s.id);
+    }
+    for (const [name, ids] of byName) if (!bindings.has(name)) bindings.set(name, { kind: 'symbol', ids });
+    let n = 0;
+    for (const f of files) {
+      if (f === imp.resolved || ++n > NS_EDGE_CAP) continue;
+      edges.push({ src: moduleId(file), dst: moduleId(f), kind: 'imports', file, line: imp.line, resolver: 'import', confidence: 1 });
+    }
   }
 
   private isTopLevelId(s: SymbolRow): boolean {
@@ -306,7 +430,10 @@ export class Resolver {
     for (const f of this.scopeFiles(file)) {
       if (f === file) continue;
       if (!includeTests && this.testFiles.has(f)) continue;
-      if (this.langOfFile.get(f) !== this.langOfFile.get(file)) continue;
+      // Same language, or any two JVM languages: one Kotlin package can hold Java files too.
+      const lf = this.langOfFile.get(f) ?? '';
+      const l0 = this.langOfFile.get(file) ?? '';
+      if (lf !== l0 && !(familyOf(lf) === 'jvm' && familyOf(l0) === 'jvm')) continue;
       const hit = this.childrenOf(moduleId(f)).get(name);
       if (hit) out.push(...hit);
     }
@@ -425,8 +552,12 @@ export class Resolver {
     // C#: a file sees its own namespace (and the enclosing ones) without any `using`, and those
     // bind before every `using`, matching how the compiler resolves a simple name.
     if (lang.id === 'csharp') for (const ns of this.fileNamespaces(file)) this.bindNamespaceMembers(ns, file, bindings);
+    const jvm = familyOf(lang.id) === 'jvm';
     for (const imp of imports) {
-      const target = imp.resolved !== null && dryRun ? imp.resolved : this.resolveImportTarget(file, lang, imp);
+      let target = imp.resolved !== null && dryRun ? imp.resolved : this.resolveImportTarget(file, lang, imp);
+      // JVM: a file name need not match the type it declares (`Models.kt` holding `Assignment`),
+      // so fall back to the package index before giving up on the import.
+      if (!target && jvm) target = this.jvmImportTarget(file, imp);
       if (!dryRun) upd.run(target, imp.rowid);
       imp.resolved = target;
       if (!target) {
@@ -455,6 +586,7 @@ export class Resolver {
           }
         }
       }
+      if (imp.namespace && !imp.alias && jvm) this.bindJvmWildcard(file, imp, bindings, edges);
       if (imp.namespace && !imp.alias && (lang.id === 'bash' || lang.id === 'elixir' || lang.id === 'python' || lang.id === 'solidity')) {
         // wildcard import: bind every top-level symbol of the target by name
         for (const s0 of targetSyms) if (s0.kind !== 'module' && s0.parent === target && !bindings.has(s0.name)) bindings.set(s0.name, { kind: 'symbol', ids: [s0.id] });
@@ -472,13 +604,23 @@ export class Resolver {
           bindings.set(alias, { kind: 'symbol', ids: matches.map((s) => s.id) });
           continue;
         }
-        if (familyOf(lang.id) === 'jvm' || lang.id === 'csharp') {
+        if (jvm || lang.id === 'csharp') {
           // static import / nested member: `import static a.b.C.m` binds m through class C
           const cls = imp.source.slice(imp.source.lastIndexOf('.') + 1);
           const owner = targetSyms.find((s) => s.name === cls && s.parent === target && CLASS_KINDS.has(s.kind));
           const mem = owner ? this.member(owner.id, n.name) : [];
           if (mem.length) {
             bindings.set(alias, { kind: 'symbol', ids: mem.map((s) => s.id) });
+            continue;
+          }
+        }
+        if (jvm) {
+          // `import a.b.C` / `import static a.b.C.m` / `import a.b.topLevelFn`, looked up by
+          // package rather than by file name.
+          const full = imp.source.endsWith('.' + n.name) ? imp.source : `${imp.source}.${n.name}`;
+          const rows = this.jvmLookup(full);
+          if (rows.length) {
+            bindings.set(alias, { kind: 'symbol', ids: rows.slice(0, NS_IDS_CAP).map((s) => s.id) });
             continue;
           }
         }

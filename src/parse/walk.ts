@@ -65,6 +65,8 @@ export interface WalkResult {
   diagnostics: Diagnostic[];
   doc: string;
   errorPct: number;
+  /** Declared package of the file (JVM), '' when the language has none. */
+  pkg: string;
 }
 
 export function walkTree(tree: Tree, source: string, path: string, lang: LanguageSupport): WalkResult {
@@ -194,9 +196,10 @@ export function walkTree(tree: Tree, source: string, path: string, lang: Languag
   lang.postWalk?.(definitions);
 
   const doc = lang.moduleDoc ? lang.moduleDoc(root, ctx) : '';
+  const pkg = lang.modulePackage ? lang.modulePackage(root, ctx) : '';
   const errorPct = source.length ? Math.min(100, Math.round((errorBytes / source.length) * 100)) : 0;
   if (errorPct > 0) diagnostics.push({ severity: errorPct > 20 ? 'warning' : 'info', message: `parse errors cover ${errorPct}% of file` });
-  return { definitions, references, imports, localTypes, diagnostics, doc, errorPct };
+  return { definitions, references, imports, localTypes, diagnostics, doc, errorPct, pkg };
 }
 
 export function toFileIR(path: string, language: string, hash: string, size: number, r: WalkResult): FileIR {

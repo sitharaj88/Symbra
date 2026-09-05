@@ -362,9 +362,12 @@ export function detectProject(root: string, files: Set<string>): ModuleResolutio
       }
     }
   }
+  // JVM source roots: `src/<sourceSet>/<lang>`, where the source set is `main`/`test` for Gradle
+  // and Maven and anything else for a Kotlin Multiplatform target (commonMain, androidMain,
+  // iosMain, jvmMain, desktopMain, jsMain, wasmJsMain, commonTest, ...).
   const jvmRoots: string[] = [];
   for (const f of files) {
-    const m = f.match(/^(.*?src\/(?:main|test)\/(?:java|kotlin|scala))\//);
+    const m = f.match(/^(.*?src\/[^/]+\/(?:java|kotlin|scala))\//);
     if (m && !jvmRoots.includes(m[1]!)) jvmRoots.push(m[1]!);
   }
   const swiftTargetOf = detectSwiftTargets(root, files);

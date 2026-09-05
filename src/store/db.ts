@@ -398,7 +398,11 @@ export class Store {
     // module symbol
     const modName = ir.path.slice(ir.path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
     const mid = moduleId(ir.path);
-    insSym.run(mid, ir.path, -1, 'module', modName, ir.path, 1, Math.max(1, ir.definitions.reduce((m, d) => Math.max(m, d.range.endLine), 1)), 0, ir.size, ir.path, ir.doc.slice(0, 2000), '', 1, null, null, null);
+    // The declared package (JVM) rides on the module symbol's meta: the resolver builds the
+    // corpus-wide package index from it, so files of one package in different directories,
+    // source sets or modules still share a scope.
+    const modMeta = ir.pkg ? JSON.stringify({ package: ir.pkg }) : null;
+    insSym.run(mid, ir.path, -1, 'module', modName, ir.path, 1, Math.max(1, ir.definitions.reduce((m, d) => Math.max(m, d.range.endLine), 1)), 0, ir.size, ir.path, ir.doc.slice(0, 2000), '', 1, null, null, modMeta);
     insFts.run(mid, modName, splitIdentifier(modName) + ' ' + splitIdentifier(ir.path), ir.path, ir.path, ir.doc.slice(0, 2000), ir.path);
     for (const d of ir.definitions) {
       let id = symbolId(ir.path, d.fqn);

@@ -129,6 +129,26 @@ export function emitRoutes(ctx: WalkContext, routes: { method: string; path: str
   }
 }
 
+/** Node types that carry a JVM `package` declaration at the top of a file. */
+const JVM_PACKAGE_NODES = new Set(['package_declaration', 'package_header', 'package_clause']);
+
+/**
+ * The package a JVM file declares (`package a.b.c`), or '' when there is none.
+ *
+ * Scala allows stacked clauses (`package a` then `package b`), which name package `a.b`, so every
+ * top-level clause is joined. The dotted name is read from the node text: the three grammars spell
+ * the child node differently, but all of them write `package <dotted name>` first.
+ */
+export function jvmPackage(root: Node): string {
+  const parts: string[] = [];
+  for (const c of kids(root)) {
+    if (!JVM_PACKAGE_NODES.has(c.type)) continue;
+    const m = /package\s+([\w$.`]+)/.exec(c.text);
+    if (m) parts.push(m[1]!.replace(/`/g, ''));
+  }
+  return parts.join('.');
+}
+
 /**
  * Candidate files for a JVM import `a.b.C`: `<root>/a/b/C.<ext>` for every source root (closest root first),
  * then the bare package path, then a same-directory file for unqualified (Scala-style relative) imports.
@@ -492,6 +512,10 @@ export const java: LanguageSupport = {
       }
     }
     return;
+  },
+
+  modulePackage(root) {
+    return jvmPackage(root);
   },
 
   resolveModule(source, fromPath, imp, project) {

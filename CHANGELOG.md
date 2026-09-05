@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.2 (2026-09-05)
+
+- **JVM package index.** Java, Kotlin, Scala and Groovy files now record their declared package;
+  imports resolve by package and symbol name regardless of file name (`import a.b.C`, nested
+  `a.b.Outer.Inner`, Kotlin top-level functions, wildcards, `import static`), same-package files
+  see each other across directories, source sets and modules, and Kotlin Multiplatform source sets
+  (`commonMain`, `androidMain`, `iosMain`, `jvmMain`, `desktopMain`, `jsMain`, `wasmJsMain`,
+  `*Test`) are recognised as source roots. Measured on a 97-file Kotlin Multiplatform app: resolved
+  internal imports 7 → 119 of 973, edges 285 → 636; on gson and moshi, edges and resolved imports
+  rose and corpus-wide "unique" guesses were replaced by same-package resolution.
+- Benchmark recall@5 71.2 → 72.0 (292 tests).
+
 ## 1.0.1 (2026-09-05)
 
 - **Monorepo resolution.** pnpm/npm workspace packages resolve by package name into their source

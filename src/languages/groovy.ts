@@ -2,7 +2,7 @@ import type { Node } from 'web-tree-sitter';
 import type { Import } from '../ir/types.js';
 import type { DefSpec, LanguageSupport, WalkContext } from './types.js';
 import { oneLine, simpleTypeName, precedingComments, named, kids } from '../parse/walk.js';
-import { jvmResolveModule } from './java.js';
+import { jvmPackage, jvmResolveModule } from './java.js';
 
 /**
  * Groovy and Gradle.
@@ -479,6 +479,10 @@ export const groovy: LanguageSupport = {
       }
     }
     return;
+  },
+
+  modulePackage(root) {
+    return jvmPackage(root);
   },
 
   resolveModule(source, fromPath, imp, project) {

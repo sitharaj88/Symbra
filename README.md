@@ -49,10 +49,10 @@ kinds, with the gold answer recorded as a symbol fqn:
 | Retrieval | recall@1 | recall@5 | found | MRR |
 |---|---|---|---|---|
 | lexical only (BM25 + PageRank) | 43.9 | 61.4 | 74.2 | 0.514 |
-| + semantic tier (`symbra embed`) | 48.5 | **71.2** | 80.3 | 0.576 |
+| + semantic tier (`symbra embed`) | 47.7 | **72.0** | 81.8 | 0.573 |
 
 The graph questions (`callers`, `impact`, `search`) already find the gold symbol in 100% of cases;
-the movement is in free-form `explore` questions, where recall@5 goes from 30.9 to 45.6. Full
+the movement is in free-form `explore` questions, where recall@5 goes from 30.9 to 51.5. Full
 harness, questions and per-repo results are in [bench/](bench/).
 
 ## Install
@@ -208,7 +208,7 @@ from the nearest config up the tree, following `extends`.
 | Python | functions, classes, methods, properties, dataclasses, enums, constants, `pytest` tests, FastAPI/Flask routes | relative and package imports, `__init__` re-exports, `TYPE_CHECKING` imports, annotated parameters and fields, `self.x = x` injection |
 | Go | functions, methods with receivers, structs and embedded fields, interfaces, consts and vars, `Test*` functions, `net/http`, gin, echo, chi and fiber routes | package-directory scope, module-path imports via `go.mod`, receiver types, `x := T{}` and `NewT()` locals |
 | Rust | functions, `impl` blocks, structs, enums, traits, consts, type aliases, macros, `#[test]` | `use` trees with `as`/globs, `mod` files, `crate::`/`self::`/`super::` paths, `Foo::new()` locals |
-| Java, Kotlin, Scala | classes, interfaces, records, enums, annotations, methods, fields, JUnit tests, Spring and JAX-RS routes, Ktor routes, ScalaTest specs | package imports and static imports through the owning class, same-package scope, inherited fields, declared and `new T()` locals |
+| Java, Kotlin, Scala | classes, interfaces, records, enums, annotations, methods, fields, JUnit tests, Spring and JAX-RS routes, Ktor routes, ScalaTest specs | declared package recorded per file; imports (`import a.b.C`, nested types, Kotlin top-level functions, wildcards, `import static`) resolve by package and symbol name, same-package files see each other across directories, source sets and modules, Kotlin Multiplatform source sets (`commonMain`, `androidMain`, `iosMain`, `jvmMain`, `desktopMain`, `jsMain`, `wasmJsMain`, `*Test`) recognised as source roots, inherited fields, declared and `new T()` locals |
 | C# | namespaces (block and file-scoped), classes, records, structs, interfaces, enums, properties, events, primary constructors, xUnit/NUnit/MSTest tests, ASP.NET attribute and minimal-API routes | `using` directives and enclosing namespaces, receiver types, `var x = new T()` |
 | C, C++ | functions and prototypes, structs, unions, enums, typedefs, macros, classes, namespaces, templates, out-of-class methods, gtest and Catch2 tests | `#include` paths, `using namespace`, smart-pointer members, `this->x` |
 | Ruby, PHP | modules, classes, mixins, `attr_*` properties, visibility sections, RSpec/minitest, Rails and Sinatra routes; namespaces, traits, enums, promoted constructor params, PHPUnit, Laravel and Symfony routes | `require_relative`, PSR-4 best effort, `@ivar`/`$this->x` typing, `parent::` |

@@ -2,7 +2,7 @@ import type { Node } from 'web-tree-sitter';
 import type { Import } from '../ir/types.js';
 import type { DefSpec, LanguageSupport, WalkContext } from './types.js';
 import { oneLine, simpleTypeName, named, kids } from '../parse/walk.js';
-import { headerText, docComment, fileDoc, isConstantName, looksLikeType, unquote, jvmResolveModule, routesFromAnnotations, routePrefix, emitRoutes, type AnnotationInfo } from './java.js';
+import { headerText, docComment, fileDoc, isConstantName, looksLikeType, unquote, jvmPackage, jvmResolveModule, routesFromAnnotations, routePrefix, emitRoutes, type AnnotationInfo } from './java.js';
 
 const COMMENTS = new Set(['multiline_comment', 'line_comment']);
 const TEST_ANNOTATIONS = new Set(['Test', 'ParameterizedTest', 'RepeatedTest', 'TestFactory', 'BeforeEach', 'AfterEach']);
@@ -394,6 +394,10 @@ export const kotlin: LanguageSupport = {
       }
     }
     return;
+  },
+
+  modulePackage(root) {
+    return jvmPackage(root);
   },
 
   resolveModule(source, fromPath, imp, project) {

@@ -134,6 +134,8 @@ export interface FileIR {
   doc: string;
   /** Percentage of the file covered by parse ERROR nodes, 0..100. */
   errorPct: number;
+  /** Declared package (JVM `package a.b.c`); absent for languages without one. */
+  pkg?: string;
 }
 
 export const EDGE_KINDS = [
