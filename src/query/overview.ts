@@ -2,10 +2,14 @@ import type { Store, SymbolRow } from '../store/db.js';
 import { fmtSymbolLine } from './format.js';
 import { freshnessHeader } from './explore.js';
 import { refreshStaleAnalysis } from '../analyze/refresh.js';
+import { isPeripheralPath, hasFlutterOrKmpRoot } from '../analyze/peripheral.js';
 
 export interface Overview {
   text: string;
   communities: { id: number; label: string; size: number; top: SymbolRow[]; dirs: string[] }[];
+  /** Communities flagged peripheral (migrations, platform scaffolding, docs, …): listed only as a
+   *  one-line summary in `text`, not as full entries. */
+  peripheralCommunities: { id: number; label: string; size: number }[];
   hubs: { symbol: SymbolRow; pagerank: number; callers: number }[];
   routes: SymbolRow[];
   cycles: string[][];
@@ -95,19 +99,33 @@ export function overview(store: Store, root: string, opts: { communities?: numbe
   const ek = store.prep('SELECT kind, COUNT(*) AS n FROM edges GROUP BY kind ORDER BY n DESC').all() as { kind: string; n: number }[];
   lines.push(`edges: ${ek.map((k) => `${k.kind} ${k.n}`).join(', ')}`);
 
-  // communities
-  const comms = store.prep('SELECT community, label, size, top_symbols, dirs FROM community_labels WHERE level = 0 ORDER BY size DESC LIMIT ?').all(nComm) as { community: number; label: string; size: number; top_symbols: string; dirs: string }[];
+  // communities. Real subsystems lead; communities flagged peripheral (migrations, platform
+  // scaffolding, docs, …) are held back to a one-line summary so a repeated migration snapshot or
+  // a generated Runner folder doesn't crowd out the actual feature subsystems.
+  const allComms = store.prep('SELECT community, label, size, top_symbols, dirs, peripheral FROM community_labels WHERE level = 0 ORDER BY size DESC').all() as { community: number; label: string; size: number; top_symbols: string; dirs: string; peripheral: number }[];
+  const realComms = allComms.filter((c) => !c.peripheral).slice(0, nComm);
+  const peripheralComms = allComms.filter((c) => c.peripheral);
   const communities: Overview['communities'] = [];
-  lines.push(`## Subsystems (${(store.prep('SELECT COUNT(*) AS n FROM community_labels WHERE level = 0').get() as { n: number }).n} communities)`);
-  for (const c of comms) {
+  const peripheralCommunities: Overview['peripheralCommunities'] = peripheralComms.map((c) => ({ id: c.community, label: c.label, size: c.size }));
+  lines.push(`## Subsystems (${allComms.length} communities)`);
+  for (const c of realComms) {
     const top = (JSON.parse(c.top_symbols) as string[]).map((id) => store.getSymbol(id)).filter((s): s is SymbolRow => !!s);
     const dirs = JSON.parse(c.dirs) as string[];
     communities.push({ id: c.community, label: c.label, size: c.size, top, dirs });
     lines.push(`- #${c.community} ${c.label} (${c.size} symbols; ${dirs.slice(0, 2).join(', ')}) — ${top.slice(0, 5).map((s) => s.fqn).join(', ')}`);
   }
+  if (peripheralComms.length) {
+    lines.push(`Peripheral (migrations, platform scaffolding, docs): ${peripheralComms.map((c) => `#${c.community}`).join(', ')}`);
+  }
 
-  // hubs
-  const hubRows = store.prep("SELECT s.*, m.pagerank, m.callers FROM metrics m JOIN symbols s ON s.id = m.symbol JOIN files f ON f.path = s.file WHERE s.kind NOT IN ('module','test','section','variable','constant','config_key','enum_member') AND f.is_test = 0 ORDER BY m.pagerank DESC LIMIT ?").all(nHubs) as (SymbolRow & { pagerank: number; callers: number })[];
+  // hubs: production code only (test files already excluded), and peripheral files (migrations,
+  // platform scaffolding, docs, …) too — a Serverpod migration snapshot or a generated
+  // MainActivity shouldn't rank as a "hub" just because every snapshot repeats it.
+  const flutterOrKmpRoot = hasFlutterOrKmpRoot(store);
+  const hubCandidates = store
+    .prep("SELECT s.*, m.pagerank, m.callers FROM metrics m JOIN symbols s ON s.id = m.symbol JOIN files f ON f.path = s.file WHERE s.kind NOT IN ('module','test','section','variable','constant','config_key','enum_member') AND f.is_test = 0 ORDER BY m.pagerank DESC LIMIT ?")
+    .all(Math.max(60, nHubs * 6)) as (SymbolRow & { pagerank: number; callers: number })[];
+  const hubRows = hubCandidates.filter((r) => !isPeripheralPath(r.file, flutterOrKmpRoot)).slice(0, nHubs);
   const hubs = hubRows.map((r) => ({ symbol: r, pagerank: r.pagerank, callers: r.callers }));
   lines.push(`## Hubs (by PageRank over production code)`);
   for (const h of hubs) lines.push(`- ${fmtSymbolLine(h.symbol)}  pr=${h.pagerank.toFixed(1)} callers=${h.callers}`);
@@ -141,5 +159,5 @@ export function overview(store: Store, root: string, opts: { communities?: numbe
   lines.push(`## Index quality`);
   lines.push(`internal imports resolved: ${imp.r}/${imp.n} (rest are external packages) · ambiguous references kept as candidates: ${un}`);
   if (errs.length) lines.push(`files with parse errors: ${errs.map((e) => `${e.path} (${e.error_pct}%)`).join(', ')}`);
-  return { text: lines.join('\n'), communities, hubs, routes, cycles };
+  return { text: lines.join('\n'), communities, peripheralCommunities, hubs, routes, cycles };
 }

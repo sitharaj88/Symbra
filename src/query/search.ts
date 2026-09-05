@@ -1,5 +1,8 @@
 import type { Store, SymbolRow } from '../store/db.js';
 import { splitIdentifier } from '../store/db.js';
+import { isPeripheralPath, hasFlutterOrKmpRoot } from '../analyze/peripheral.js';
+
+export { PERIPHERAL_PATH, isPeripheralPath, hasFlutterOrKmpRoot } from '../analyze/peripheral.js';
 import { fuseHits } from '../embed/fuse.js';
 
 const STOP = new Set(
@@ -53,13 +56,6 @@ export function inheritedDocFrom(s: SymbolRow): string | null {
 }
 /** Discount applied to the BM25 component of a hit whose doc was inherited, not written. */
 const INHERITED_DOC_DISCOUNT = 0.85;
-
-/**
- * Directories that hold peripheral code: demos, docs, tooling and side modules. `example`/`sample`
- * may sit anywhere in a segment ("watchOS Example/", "example-app/"), the rest are whole segments.
- */
-export const PERIPHERAL_PATH =
-  /(^|\/)(?:[^/]*(?:examples?|samples?|demos?|fixtures?)[^/]*|docs?|benchmarks?|bench|vendor|third_party|extras?|support|metrics|proto|website|www)\//i;
 
 /**
  * Test scaffolding recognised from the path alone. `files.is_test` is set by the indexer's own
@@ -199,6 +195,7 @@ export function search(store: Store, q: string, opts: SearchOptions = {}): Searc
   const { terms, idents, quoted } = queryTerms(q);
   if (!terms.length && !idents.length) return [];
   const testFiles = new Set((store.prep('SELECT path FROM files WHERE is_test = 1').all() as { path: string }[]).map((r) => r.path));
+  const flutterOrKmpRoot = hasFlutterOrKmpRoot(store);
   const hits = new Map<string, SearchHit>();
   const pr = (id: string) => (store.prep('SELECT pagerank, callers FROM metrics WHERE symbol = ?').get(id) as { pagerank: number; callers: number } | undefined) ?? { pagerank: 0, callers: 0 };
   const comm = (id: string) => (store.prep('SELECT community FROM communities WHERE symbol = ? AND level = 0').get(id) as { community: number } | undefined)?.community ?? null;
@@ -294,7 +291,7 @@ export function search(store: Store, q: string, opts: SearchOptions = {}): Searc
     if (behavioural) h.score *= QUESTION_KIND_BOOST[s.kind] ?? 1;
     // an `impl Bytes` / `extension HTTPHeader` block must rank behind the `struct Bytes` it reopens
     if (isReopenedBlock(s)) h.score *= 0.5;
-    if (PERIPHERAL_PATH.test(s.file)) h.score *= 0.6;
+    if (isPeripheralPath(s.file, flutterOrKmpRoot)) h.score *= 0.6;
     h.score += Math.log1p(h.pagerank) * 0.8 + Math.log1p(h.callers) * 0.3;
     if (s.doc) h.score += 0.3;
     h.community = comm(s.id);
@@ -382,6 +379,7 @@ export function findSymbols(store: Store, text: string, limit = 8): SymbolRow[] 
 function rankPreferred(store: Store, rows: SymbolRow[], bonus?: Map<string, number>): SymbolRow[] {
   if (rows.length < 2) return rows;
   const testFiles = new Set((store.prep('SELECT path FROM files WHERE is_test = 1').all() as { path: string }[]).map((r) => r.path));
+  const flutterOrKmpRoot = hasFlutterOrKmpRoot(store);
   const pr = new Map<string, number>();
   const ids = rows.map((r) => r.id);
   for (let i = 0; i < ids.length; i += 400) {
@@ -395,7 +393,7 @@ function rankPreferred(store: Store, rows: SymbolRow[], bonus?: Map<string, numb
     (KIND_BOOST[s.kind] ?? 1) * 3 +
     (isReopenedBlock(s) ? -4 : 0) +
     (s.kind === 'section' || s.file.endsWith('.md') ? -6 : 0) +
-    (PERIPHERAL_PATH.test(s.file) ? -3 : 0) +
+    (isPeripheralPath(s.file, flutterOrKmpRoot) ? -3 : 0) +
     (bonus?.get(s.id) ?? 0);
   const scored = rows.map((s) => ({ s, k: score(s), p: pr.get(s.id) ?? 0 }));
   scored.sort((a, b) => b.k - a.k || b.p - a.p || (a.s.file < b.s.file ? -1 : a.s.file > b.s.file ? 1 : a.s.id < b.s.id ? -1 : 1));

@@ -3,7 +3,7 @@ import { symlinkSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { scanRepo, isGeneratedFilename } from '../../src/index/scan.js';
+import { scanRepo, isGeneratedFilename, isGeneratedPath } from '../../src/index/scan.js';
 import { indexRepo } from '../../src/index/indexer.js';
 import { makeRepo, type TempRepo } from './helpers.js';
 
@@ -106,5 +106,58 @@ describe('generated/minified file detection end to end', () => {
     const stats = await indexRepo({ root: r.root, dbPath: r.dbPath, embed: false });
     expect(stats.skippedGenerated).toBe(3);
     expect(stats.files).toBe(3);
+  });
+
+  it('skips a Serverpod-style "DO NOT MODIFY" header and a .g.dart file, keeps hand-written code', async () => {
+    const r = repo({
+      // Serverpod / protoc-style banner: not `@generated`, not `do not edit` — the literal phrase
+      // codegen tools like Serverpod actually stamp.
+      'lib/src/generated/protocol.dart': '/* AUTOMATICALLY GENERATED CODE DO NOT MODIFY */\nclass Protocol {}\n',
+      'lib/src/model.g.dart': 'part of model;\nProject _$ProjectFromJson(Map json) => Project();\n',
+      'lib/src/model.dart': 'class Project {\n  String name = "";\n}\n',
+    });
+    const stats = await indexRepo({ root: r.root, dbPath: r.dbPath, embed: false });
+    // protocol.dart is also caught by the generated/ directory heuristic in scan.ts, so both it
+    // and model.g.dart never reach indexer.ts's content check.
+    expect(paths(r.root)).toEqual(['lib/src/model.dart']);
+    expect(stats.skippedGenerated).toBe(2);
+  });
+
+  it('excludes a `generated/` directory but not an ordinary `gen/` one', () => {
+    expect(isGeneratedPath('lib/src/generated/protocol.dart')).toBe(true);
+    expect(isGeneratedPath('proto/__generated__/foo.py')).toBe(true);
+    expect(isGeneratedPath('src/gen/handwritten.ts')).toBe(false);
+
+    const r = repo({
+      'lib/src/generated/protocol.dart': 'class Protocol {}\n',
+      'src/gen/handwritten.ts': 'export function real() { return 1; }\n',
+    });
+    expect(paths(r.root)).toEqual(['src/gen/handwritten.ts']);
+  });
+
+  it('a `.symbraignore` negation forces a content-marker-skipped file back in', async () => {
+    const r = repo({
+      '.symbraignore': '!src/keep_me.ts\n',
+      'src/keep_me.ts': '// AUTOMATICALLY GENERATED - DO NOT MODIFY\nexport const kept = 1;\n',
+      'src/drop_me.ts': '// AUTOMATICALLY GENERATED - DO NOT MODIFY\nexport const dropped = 1;\n',
+    });
+    const stats = await indexRepo({ root: r.root, dbPath: r.dbPath, embed: false });
+    expect(stats.skippedGenerated).toBe(1);
+    expect(stats.files).toBe(2);
+  });
+
+  it('keeps a migration file indexed (real code, just demoted in ranking)', async () => {
+    const r = repo({
+      'migrations/20240101_add_users.sql': 'CREATE TABLE users (id INTEGER PRIMARY KEY);\n',
+      'src/app.ts': 'export function app() { return 1; }\n',
+    });
+    expect(paths(r.root)).toEqual(['migrations/20240101_add_users.sql', 'src/app.ts']);
+    const stats = await indexRepo({ root: r.root, dbPath: r.dbPath, embed: false });
+    expect(stats.skippedGenerated).toBe(0);
+    expect(stats.files).toBe(2);
+
+    const { PERIPHERAL_PATH } = await import('../../src/query/search.js');
+    expect(PERIPHERAL_PATH.test('migrations/20240101_add_users.sql')).toBe(true);
+    expect(PERIPHERAL_PATH.test('src/app.ts')).toBe(false);
   });
 });

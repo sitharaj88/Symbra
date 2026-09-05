@@ -80,6 +80,10 @@ export interface ScanOptions {
 const GENERATED_EXT_RE = /\.(m?js|cjs|css)$/i;
 const HASH_SUFFIX_RE = /[.-]([A-Za-z0-9_-]{6,})\.(m?js|cjs|css)$/i;
 const KNOWN_GENERATED_PREFIX_RE = /^(chunk|vendors?|runtime|polyfills?)[-.]/i;
+// Codegen tools that stamp their output with a fixed, unambiguous filename suffix rather than a
+// content hash: Dart's json_serializable/build_runner (`.g.dart`), freezed (`.freezed.dart`),
+// protoc's Dart plugin (`.pb.dart`), and the Visual Studio designer (`.designer.cs`).
+const KNOWN_GENERATED_SUFFIX_RE = /\.(?:g|freezed|pb)\.dart$|\.designer\.cs$/i;
 
 /** True when a suffix looks like a content hash rather than an English word (`utils`, `config`). */
 function looksLikeHash(s: string): boolean {
@@ -87,14 +91,26 @@ function looksLikeHash(s: string): boolean {
   return true; // has a digit, an underscore, or mixed case: hash-shaped
 }
 
-/** True for a built/minified bundle name: hashed output, known chunk names, `.min.`/`.bundle.` files. */
+/** True for a built/minified bundle name: hashed output, known chunk names, `.min.`/`.bundle.` files,
+ *  or a fixed codegen suffix (`.g.dart`, `.freezed.dart`, `.pb.dart`, `.designer.cs`). */
 export function isGeneratedFilename(name: string): boolean {
+  if (KNOWN_GENERATED_SUFFIX_RE.test(name)) return true;
   if (!GENERATED_EXT_RE.test(name)) return false;
   if (/\.min\.\w+$/i.test(name)) return true;
   if (/\.bundle\.\w+$/i.test(name)) return true;
   if (KNOWN_GENERATED_PREFIX_RE.test(name)) return true;
   const m = name.match(HASH_SUFFIX_RE);
   return !!m && looksLikeHash(m[1]!);
+}
+
+// A directory that IS (not merely contains a substring like) `generated` or `__generated__` holds
+// codegen output end to end (Serverpod's `lib/src/generated/`, protobuf's `__generated__/`, ...).
+// Kept conservative on purpose: `gen/` alone is too common a real source directory name to skip.
+const GENERATED_DIR_RE = /(^|\/)(?:generated|__generated__)\//;
+
+/** True when any path segment (not the filename) is exactly `generated` or `__generated__`. */
+export function isGeneratedPath(relPath: string): boolean {
+  return GENERATED_DIR_RE.test(relPath);
 }
 
 /** Lines starting with `!` (a gitignore negation), unwrapped, from one ignore-file's contents. */
@@ -105,7 +121,7 @@ function negationsOf(source: string): string[] {
 /** Matcher built from just the negation (`!...`) lines, so `.symbraignore` can force-include a
  *  file the name/content heuristics would otherwise drop — those heuristics aren't gitignore
  *  patterns, so the normal `ig.ignores()` negation machinery never sees them. */
-function buildForceInclude(root: string, extraIgnores?: string[]): Ignore {
+export function buildForceInclude(root: string, extraIgnores?: string[]): Ignore {
   const lines: string[] = [];
   if (extraIgnores?.length) lines.push(...negationsOf(extraIgnores.join('\n')));
   for (const f of ['.gitignore', '.symbraignore', '.graphifyignore']) {
@@ -250,7 +266,7 @@ export function scanRepo(opts: ScanOptions): ScannedFile[] {
       const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
       const isDoc = opts.includeDocs !== false && DOC_EXT.has(ext);
       if (!lang && !isDoc) continue;
-      if (isGeneratedFilename(name) && !forceInclude.ignores(relPath)) {
+      if ((isGeneratedFilename(name) || isGeneratedPath(relPath)) && !forceInclude.ignores(relPath)) {
         opts.onGeneratedSkip?.(relPath);
         continue;
       }

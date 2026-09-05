@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import { loadGraph, loadRows, type Graph } from './metrics.js';
 import { splitIdentifier } from '../store/db.js';
+import { isPeripheralPath, hasFlutterOrKmpRoot } from './peripheral.js';
 
 /**
  * Deterministic Louvain community detection on the undirected weighted projection of the
@@ -139,7 +140,13 @@ function localMoving(adj: Map<number, number>[], n: number, resolution: number):
 
 const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'and', 'or', 'in', 'is', 'for', 'get', 'set', 'init', 'new', 'test', 'tests', 'index', 'main', 'src', 'lib', 'utils', 'util', 'core', 'base', 'impl', 'default', 'type', 'types', 'js', 'ts', 'py', 'spec', 'this', 'self', 'module', 'exports']);
 
-function labelFor(members: { name: string; file: string; kind: string; pr: number }[]): { label: string; dirs: string[] } {
+function labelFor(allMembers: { name: string; file: string; kind: string; pr: number }[], flutterOrKmpRoot: boolean): { label: string; dirs: string[] } {
+  // Peripheral files (migrations, fixtures, vendor, platform scaffolding, ...) are real code and
+  // stay in the community for sizing/ranking purposes, but a subsystem's name and representative
+  // directory shouldn't be drawn from them — a "migrations: add users table" label buries what the
+  // subsystem actually is.
+  const primary = allMembers.filter((m) => !isPeripheralPath(m.file, flutterOrKmpRoot));
+  const members = primary.length ? primary : allMembers;
   // common directory prefix
   const dirs = new Map<string, number>();
   for (const m of members) {
@@ -159,6 +166,20 @@ function labelFor(members: { name: string; file: string; kind: string; pr: numbe
   const words = top.join(' ');
   const label = dirLabel && words ? `${dirLabel}: ${words}` : words || dirLabel || hub?.name || 'misc';
   return { label, dirs: topDirs };
+}
+
+/** Fraction of a community's members that must sit on a peripheral path for the whole community
+ *  to be flagged peripheral: a Serverpod migration snapshot or a Flutter platform-runner folder
+ *  repeats the same handful of symbols across many communities, and those shouldn't compete with
+ *  the real feature subsystems in the overview or map. */
+const PERIPHERAL_COMMUNITY_THRESHOLD = 0.8;
+
+/** True when at least `PERIPHERAL_COMMUNITY_THRESHOLD` of a community's members are on a peripheral path. */
+export function isCommunityPeripheral(members: { file: string }[], flutterOrKmpRoot: boolean): boolean {
+  if (!members.length) return false;
+  let n = 0;
+  for (const m of members) if (isPeripheralPath(m.file, flutterOrKmpRoot)) n++;
+  return n / members.length >= PERIPHERAL_COMMUNITY_THRESHOLD;
 }
 
 /** Split any community larger than `maxSize` by re-running Louvain on its induced subgraph at a higher resolution. */
@@ -242,16 +263,18 @@ export function computeCommunities(store: Store, rows = loadRows(store)) {
     if (!arr) members.set(c, (arr = []));
     arr.push({ id, ...m, pr: pr.get(id) ?? 0 });
   }
+  const flutterOrKmpRoot = hasFlutterOrKmpRoot(store);
   store.transaction(() => {
     store.db.exec('DELETE FROM communities');
     store.db.exec('DELETE FROM community_labels');
     const ins = store.prep('INSERT INTO communities(symbol, level, community) VALUES(?, 0, ?)');
-    const insL = store.prep('INSERT INTO community_labels(level, community, label, size, top_symbols, dirs) VALUES(0, ?, ?, ?, ?, ?)');
+    const insL = store.prep('INSERT INTO community_labels(level, community, label, size, top_symbols, dirs, peripheral) VALUES(0, ?, ?, ?, ?, ?, ?)');
     for (const [c, arr] of members) {
       for (const m of arr) ins.run(m.id, c);
-      const { label, dirs } = labelFor(arr);
+      const { label, dirs } = labelFor(arr, flutterOrKmpRoot);
       const top = [...arr].sort((a, b) => b.pr - a.pr).slice(0, 8).map((m) => m.id);
-      insL.run(c, label, arr.length, JSON.stringify(top), JSON.stringify(dirs));
+      const peripheral = isCommunityPeripheral(arr, flutterOrKmpRoot);
+      insL.run(c, label, arr.length, JSON.stringify(top), JSON.stringify(dirs), peripheral ? 1 : 0);
     }
   });
 }

@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS community_labels(
   size INTEGER NOT NULL,
   top_symbols TEXT NOT NULL DEFAULT '[]',
   dirs TEXT NOT NULL DEFAULT '[]',
+  peripheral INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(level, community)
 );
 
@@ -250,6 +251,7 @@ export class Store {
       this.reset({ dropTables: true });
     }
     this.setMeta('schema_version', String(SCHEMA_VERSION));
+    this.migrateColumns();
   }
 
   static exists(root: string): boolean {
@@ -286,6 +288,21 @@ export class Store {
     // longer exists once re-extraction has run.
     for (const t of ['files', 'symbols', 'refs', 'imports', 'local_types', 'edges', 'unresolved', 'symbols_fts', 'metrics', 'communities', 'community_labels']) {
       this.db.exec(`DELETE FROM ${t}`);
+    }
+  }
+
+  /**
+   * Add columns that were introduced after a store's on-disk file was created, without bumping
+   * `SCHEMA_VERSION` (which would drop and rebuild every table). `CREATE TABLE IF NOT EXISTS`
+   * only shapes a *new* table, so an existing `community_labels` table from before this column
+   * existed needs an explicit `ALTER TABLE`. Guarded by `PRAGMA table_info` so it's a no-op once
+   * the column is there, and safe to call on every open.
+   */
+  private migrateColumns() {
+    const hasColumn = (table: string, column: string): boolean =>
+      (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+    if (!hasColumn('community_labels', 'peripheral')) {
+      this.db.exec('ALTER TABLE community_labels ADD COLUMN peripheral INTEGER NOT NULL DEFAULT 0');
     }
   }
 
