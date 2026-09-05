@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store, SymbolRow } from '../store/db.js';
-import { search, findSymbols, type SearchHit } from './search.js';
+import { search, findSymbols, isTestFile, type SearchHit } from './search.js';
 import { cachedGraph, callersOf, calleesOf, impact, shortestPath, testsFor, edgeKindLabel } from './graph.js';
 import { EDGE_WEIGHT } from '../analyze/metrics.js';
 import { fmtSymbolLine, estimateTokens, indent } from './format.js';
@@ -253,12 +253,12 @@ export function explore(store: Store, question: string, opts: ExploreOptions): C
   const testFiles = new Set((store.prep('SELECT path FROM files WHERE is_test = 1').all() as { path: string }[]).map((r) => r.path));
   rankedPpr.forEach(([id], i) => {
     const s = store.getSymbol(id);
-    if (!s || s.kind === 'module' || s.kind === 'test' || testFiles.has(s.file)) return;
+    if (!s || s.kind === 'module' || s.kind === 'test' || isTestFile(s.file, testFiles)) return;
     fused.set(id, (fused.get(id) ?? 0) + 0.7 / (i + 1));
   });
   for (const [id] of fused) {
     const s = store.getSymbol(id);
-    if (s && (s.kind === 'test' || testFiles.has(s.file))) fused.set(id, fused.get(id)! * 0.2);
+    if (s && (s.kind === 'test' || isTestFile(s.file, testFiles))) fused.set(id, fused.get(id)! * 0.2);
   }
   let ordered = [...fused.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => store.getSymbol(id)!).filter(Boolean);
   ordered = hoistMembers(ordered, new Map(hits.map((h, i) => [h.symbol.id, i])));

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.1 (2026-09-05)
+
+- **Monorepo resolution.** pnpm/npm workspace packages resolve by package name into their source
+  (`@scope/pkg`, subpaths), and tsconfig/jsconfig `paths` are read from the nearest config up the
+  tree, following `extends`. Measured on a 1,144-file pnpm monorepo: resolved internal imports
+  2,200 → 2,943 of 4,805, edges 65,907 → 72,236, ambiguous references 7,156 → 3,378.
+- Imports from external packages and test-runner globals (vitest/jest/mocha) no longer count as
+  ambiguous references.
+- **Ranking.** Plain English words in a question no longer get the exact-identifier bonus, test
+  helpers under `test-helpers/`, `__tests__/`, `*.test.*` etc. are demoted by path, and behavioural
+  "how/what/where" questions favour functions over type declarations. Benchmark recall@5 69.7 →
+  71.2 overall (hard subset 67.2 → 69.0), 288 tests.
+
 ## 1.0.0 (2026-09-05)
 
 First public release.

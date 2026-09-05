@@ -643,7 +643,22 @@ export function resolveJsModule(source: string, fromPath: string, project: Modul
     return withExtensions(stack.join('/'));
   }
   const out: string[] = [];
-  const tp = project.tsPaths;
+  // A workspace package (`@scope/core`, `@scope/core/sub`) is source in this repo, not a dependency.
+  // Its `main`/`exports` point at `dist/`, which is never indexed, so aim straight at the sources.
+  const ws = project.workspaces;
+  if (ws?.size) {
+    let hitName = '';
+    for (const name of ws.keys()) {
+      if ((source === name || source.startsWith(name + '/')) && name.length > hitName.length) hitName = name;
+    }
+    if (hitName) {
+      const dir = ws.get(hitName)!;
+      const sub = source.slice(hitName.length).replace(/^\//, '').replace(/\/$/, '');
+      if (!sub) out.push(...withExtensions(`${dir}/src`), ...withExtensions(dir));
+      else out.push(...withExtensions(`${dir}/src/${sub}`), ...withExtensions(`${dir}/${sub}`));
+    }
+  }
+  const tp = project.tsPathsFor?.(fromPath) ?? project.tsPaths;
   if (tp) {
     for (const [pattern, targets] of Object.entries(tp.paths)) {
       const star = pattern.indexOf('*');
@@ -655,7 +670,7 @@ export function resolveJsModule(source: string, fromPath: string, project: Modul
       } else if (source === pattern) rest = '';
       if (rest === null) continue;
       for (const t of targets) {
-        const target = t.replace('*', rest);
+        const target = t.replace('*', rest).replace(/^\.\//, '');
         const base = tp.baseUrl ? `${tp.baseUrl}/${target}` : target;
         out.push(...withExtensions(base.replace(/^\.\//, '')));
       }

@@ -85,8 +85,16 @@ export interface LanguageSupport {
 export interface ModuleResolutionContext {
   /** All indexed file paths (posix, repo-relative). */
   hasFile(path: string): boolean;
-  /** tsconfig/jsconfig path aliases: pattern -> targets. */
+  /** tsconfig/jsconfig path aliases of the repo root: pattern -> targets. */
   tsPaths?: { baseUrl: string; paths: Record<string, string[]> } | null;
+  /**
+   * Path aliases of the *nearest* tsconfig/jsconfig above an importing file, falling back to the
+   * root config. A monorepo gives `web/` and each package its own `@/*`, so the root config alone
+   * resolves the wrong file (or none).
+   */
+  tsPathsFor?(fromPath: string): { baseUrl: string; paths: Record<string, string[]> } | null;
+  /** JS/TS workspace package name -> repo-relative directory (pnpm/npm/yarn workspaces). */
+  workspaces?: Map<string, string>;
   /** Go module path from go.mod. */
   goModule?: string | null;
   /** Python source roots (e.g. `src/`). */

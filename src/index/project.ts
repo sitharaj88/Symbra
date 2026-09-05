@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { ModuleResolutionContext } from '../languages/types.js';
 
 /**
@@ -152,29 +152,201 @@ export function detectSwiftTargets(root: string, files: Set<string>): Map<string
   return targetOf;
 }
 
-export function detectProject(root: string, files: Set<string>): ModuleResolutionContext {
-  let tsPaths: ModuleResolutionContext['tsPaths'] = null;
-  for (const cfg of ['tsconfig.json', 'jsconfig.json', 'tsconfig.base.json']) {
-    const p = join(root, cfg);
-    if (!existsSync(p)) continue;
-    try {
-      const j = readJsonc(p) as { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> }; extends?: string };
-      let co = j.compilerOptions ?? {};
-      if (j.extends && typeof j.extends === 'string' && j.extends.startsWith('.')) {
-        const ep = join(root, j.extends.endsWith('.json') ? j.extends : j.extends + '.json');
-        if (existsSync(ep)) {
-          const base = readJsonc(ep) as { compilerOptions?: typeof co };
-          co = { ...(base.compilerOptions ?? {}), ...co };
+/** compilerOptions {baseUrl, paths} of one tsconfig/jsconfig, repo-relative, `extends` followed. */
+interface TsPaths { baseUrl: string; paths: Record<string, string[]> }
+
+function relFrom(root: string, abs: string): string {
+  const r = abs.slice(root.length).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  return r;
+}
+
+/** Join a repo-relative dir with a config-relative path, normalising `./` and `../`. */
+function joinRel(dir: string, rel: string): string {
+  const parts = (dir ? dir.split('/') : []).concat(rel.replace(/\\/g, '/').split('/'));
+  const stack: string[] = [];
+  for (const p of parts) {
+    if (p === '' || p === '.') continue;
+    if (p === '..') stack.pop();
+    else stack.push(p);
+  }
+  return stack.join('/');
+}
+
+/**
+ * Read `baseUrl`/`paths` out of one tsconfig, following relative `extends` (deepest base first,
+ * the extending file winning). `paths` are anchored on the config that declares them when it
+ * declares no `baseUrl`, which is how TypeScript itself resolves them.
+ */
+function readTsConfig(root: string, absPath: string, depth = 0): TsPaths | null {
+  if (depth > 8 || !existsSync(absPath)) return null;
+  let j: { compilerOptions?: { baseUrl?: string; paths?: Record<string, string[]> }; extends?: string | string[] };
+  try {
+    j = readJsonc(absPath) as typeof j;
+  } catch {
+    return null;
+  }
+  const dir = relFrom(root, dirname(absPath));
+  const own = j.compilerOptions ?? {};
+  const bases: TsPaths[] = [];
+  const exts = Array.isArray(j.extends) ? j.extends : j.extends ? [j.extends] : [];
+  for (const e of exts) {
+    if (typeof e !== 'string' || !e.startsWith('.')) continue; // package `extends`: not on disk here
+    const ep = join(dirname(absPath), e.endsWith('.json') ? e : e + '.json');
+    const base = readTsConfig(root, ep, depth + 1);
+    if (base) bases.push(base);
+  }
+  let inherited: TsPaths | null = null;
+  for (const base of bases) inherited = { baseUrl: base.baseUrl, paths: { ...(inherited ? inherited.paths : {}), ...base.paths } };
+  if (own.paths || own.baseUrl !== undefined) {
+    const baseUrl = own.baseUrl !== undefined ? joinRel(dir, own.baseUrl) : own.paths ? dir : (inherited?.baseUrl ?? dir);
+    return { baseUrl, paths: { ...(inherited?.paths ?? {}), ...(own.paths ?? {}) } };
+  }
+  return inherited;
+}
+
+const TS_CONFIG_NAMES = ['tsconfig.json', 'jsconfig.json', 'tsconfig.base.json'];
+
+/**
+ * Nearest tsconfig/jsconfig walking up from a file's directory, cached per directory. A monorepo
+ * gives each package (and `web/`, `editors/vscode/`, ...) its own `@/*` alias; only the config
+ * closest to the importer describes it.
+ */
+function makeTsPathsFor(root: string, rootPaths: TsPaths | null): (fromPath: string) => TsPaths | null {
+  const cache = new Map<string, TsPaths | null>();
+  return (fromPath: string) => {
+    let dir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : '';
+    const chain: string[] = [];
+    for (;;) {
+      const hit = cache.get(dir);
+      if (hit !== undefined) {
+        for (const d of chain) cache.set(d, hit);
+        return hit;
+      }
+      chain.push(dir);
+      let found: TsPaths | null = null;
+      for (const name of TS_CONFIG_NAMES) {
+        found = readTsConfig(root, join(root, dir, name));
+        if (found) break;
+      }
+      if (found) {
+        for (const d of chain) cache.set(d, found);
+        return found;
+      }
+      if (dir === '') break;
+      dir = dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '';
+    }
+    for (const d of chain) cache.set(d, rootPaths);
+    return rootPaths;
+  };
+}
+
+/** `packages:` globs of a pnpm-workspace.yaml (a flat string list; no full YAML parse needed). */
+export function parsePnpmWorkspace(text: string): string[] {
+  const out: string[] = [];
+  let inPackages = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, '').replace(/\s+$/, '');
+    if (!line.trim()) continue;
+    if (/^packages\s*:/.test(line)) {
+      inPackages = true;
+      const inline = line.slice(line.indexOf(':') + 1).trim();
+      if (inline.startsWith('[')) {
+        for (const m of inline.matchAll(/["']?([^,'"\[\]\s]+)["']?/g)) if (m[1]) out.push(m[1]);
+        inPackages = false;
+      }
+      continue;
+    }
+    if (!inPackages) continue;
+    const m = /^\s+-\s*["']?([^"'#]+?)["']?\s*$/.exec(line);
+    if (m) out.push(m[1]!);
+    else if (/^\S/.test(line)) inPackages = false;
+  }
+  return out;
+}
+
+/** Expand a workspace glob (`packages/*`, `apps/**`, `tools/a`) to existing repo-relative dirs. */
+function expandWorkspaceGlob(root: string, glob: string): string[] {
+  const parts = glob.replace(/^\.\//, '').replace(/\/+$/, '').split('/').filter((p) => p !== '' && p !== '.');
+  let dirs = [''];
+  for (const part of parts) {
+    if (part === '*' || part === '**') {
+      const next: string[] = [];
+      for (const d of dirs) {
+        let entries: string[];
+        try {
+          entries = readdirSync(join(root, d), { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules').map((e) => e.name);
+        } catch {
+          continue;
+        }
+        for (const e of entries) {
+          const child = d ? `${d}/${e}` : e;
+          next.push(child);
+          if (part === '**') dirs.push(child); // keep descending for `**`
         }
       }
-      if (co.paths || co.baseUrl !== undefined) {
-        tsPaths = { baseUrl: (co.baseUrl ?? '').replace(/^\.\//, '').replace(/\/$/, ''), paths: co.paths ?? {} };
-        break;
-      }
+      dirs = next;
+    } else {
+      dirs = dirs.map((d) => (d ? `${d}/${part}` : part)).filter((d) => existsSync(join(root, d)));
+    }
+    if (!dirs.length) return [];
+  }
+  return dirs;
+}
+
+/**
+ * Workspace package name -> directory. pnpm-workspace.yaml and the root package.json `workspaces`
+ * field are authoritative; `packages/*` and `apps/*` are the fallback for a repo that declares its
+ * workspaces somewhere we do not read (lerna, nx, turbo without pnpm).
+ */
+export function detectWorkspaces(root: string): Map<string, string> {
+  const globs: string[] = [];
+  const pnpm = join(root, 'pnpm-workspace.yaml');
+  if (existsSync(pnpm)) {
+    try {
+      globs.push(...parsePnpmWorkspace(readFileSync(pnpm, 'utf8')));
     } catch {
-      /* ignore malformed config */
+      /* unreadable manifest */
     }
   }
+  const rootPkg = join(root, 'package.json');
+  if (existsSync(rootPkg)) {
+    try {
+      const j = readJsonc(rootPkg) as { workspaces?: string[] | { packages?: string[] } };
+      const w = Array.isArray(j.workspaces) ? j.workspaces : j.workspaces?.packages;
+      if (Array.isArray(w)) globs.push(...w.filter((g) => typeof g === 'string'));
+    } catch {
+      /* unreadable manifest */
+    }
+  }
+  if (!globs.length) globs.push('packages/*', 'apps/*');
+  const out = new Map<string, string>();
+  const seen = new Set<string>();
+  for (const g of globs) {
+    if (g.startsWith('!')) continue;
+    for (const dir of expandWorkspaceGlob(root, g)) {
+      if (seen.has(dir)) continue;
+      seen.add(dir);
+      const pkg = join(root, dir, 'package.json');
+      if (!existsSync(pkg)) continue;
+      try {
+        const name = (readJsonc(pkg) as { name?: string }).name;
+        if (typeof name === 'string' && name && !out.has(name)) out.set(name, dir);
+      } catch {
+        /* unreadable manifest */
+      }
+    }
+  }
+  return out;
+}
+
+export function detectProject(root: string, files: Set<string>): ModuleResolutionContext {
+  let tsPaths: ModuleResolutionContext['tsPaths'] = null;
+  for (const cfg of TS_CONFIG_NAMES) {
+    tsPaths = readTsConfig(root, join(root, cfg));
+    if (tsPaths) break;
+  }
+  const tsPathsFor = makeTsPathsFor(root, tsPaths);
+  const workspaces = detectWorkspaces(root);
   let goModule: string | null = null;
   const gomod = join(root, 'go.mod');
   if (existsSync(gomod)) {
@@ -199,6 +371,8 @@ export function detectProject(root: string, files: Set<string>): ModuleResolutio
   return {
     hasFile: (p) => files.has(p),
     tsPaths,
+    tsPathsFor,
+    workspaces,
     goModule,
     pythonRoots,
     jvmRoots,

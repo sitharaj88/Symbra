@@ -61,6 +61,53 @@ const INHERITED_DOC_DISCOUNT = 0.85;
 export const PERIPHERAL_PATH =
   /(^|\/)(?:[^/]*(?:examples?|samples?|demos?|fixtures?)[^/]*|docs?|benchmarks?|bench|vendor|third_party|extras?|support|metrics|proto|website|www)\//i;
 
+/**
+ * Test scaffolding recognised from the path alone. `files.is_test` is set by the indexer's own
+ * heuristics and misses shapes such as `src/test-helpers/scratch.ts` (production-looking module,
+ * imported only by tests). A helper like that has many callers, so the caller prior lifts it over
+ * the real answer unless it is demoted here. Matching on the path costs nothing and closes the gap
+ * without a re-index.
+ */
+export const TEST_PATH =
+  /(^|\/)(?:__tests__|__mocks__|tests?|specs?|testing|test-helpers?|test-utils?|testutil|mocks?)\/|(^|\/)[^/]*[._-](?:test|tests|spec|specs)\.[^/]+$|(^|\/)(?:conftest|test_[^/]*)\.[^/]+$/i;
+
+/** True when the store marked the file as a test, or its path alone gives it away. */
+export function isTestFile(file: string, testFiles: ReadonlySet<string>): boolean {
+  return testFiles.has(file) || TEST_PATH.test(file);
+}
+
+/**
+ * A natural-language question ("what makes the agent loop stop", "where is a tool call checked")
+ * rather than a name lookup ("runLoop", "http parser"). What answers a question like this is code
+ * that *does* something — a function or a method — not a data-shaped declaration that happens to
+ * contain the same words, so the kind prior is re-weighted for these.
+ */
+const QUESTION_LEAD = /^\s*(?:how|what|where|why|when|which|who|whose|does|do|did|is|are|can|could|should|would|explain|describe)\b/i;
+
+export function isBehaviouralQuestion(q: string, termCount: number): boolean {
+  return termCount >= 3 && QUESTION_LEAD.test(q);
+}
+
+/**
+ * Kind prior applied on top of KIND_BOOST for behavioural questions only. Declarations (a property,
+ * a field, an interface, a type alias) name the vocabulary of an answer; the function or method is
+ * the answer. Nothing is boosted here — functions and methods win by the others being damped, so a
+ * question never scores higher overall than the same words asked as a lookup.
+ */
+const QUESTION_KIND_BOOST: Record<string, number> = {
+  property: 0.78,
+  field: 0.78,
+  variable: 0.8,
+  constant: 0.8,
+  enum_member: 0.8,
+  class: 0.86,
+  interface: 0.86,
+  struct: 0.86,
+  trait: 0.86,
+  enum: 0.86,
+  type_alias: 0.86,
+};
+
 export interface SearchHit {
   symbol: SymbolRow;
   score: number;
@@ -163,6 +210,12 @@ export function search(store: Store, q: string, opts: SearchOptions = {}): Searc
   //    carries a sixth of the weight of a unique one.
   const quotedSet = new Set(quoted.map((t) => t.toLowerCase()));
   const AMBIGUOUS = 200; // a name this common carries no signal, and fetching it all is wasted work
+  // A plain dictionary word ("checked", "stop", "loop") earns the exact-name bonus only when the
+  // whole query is one or two words, i.e. the user was naming a symbol. Inside a sentence it is
+  // English, not an identifier: "where is a tool call checked for permission" must not be decided
+  // by the one property in the repo that happens to be spelled `checked`, which at n=1 collected
+  // the full 22 * 0.35 and outweighed every other signal combined.
+  const lookup = terms.length <= 2;
   for (const ident of idents) {
     const last = ident.includes('.') ? ident.slice(ident.lastIndexOf('.') + 1) : ident;
     const dotted = ident.includes('.');
@@ -175,6 +228,7 @@ export function search(store: Store, q: string, opts: SearchOptions = {}): Searc
       : (store.prep('SELECT * FROM symbols WHERE name = ? COLLATE NOCASE LIMIT ?').all(last, AMBIGUOUS) as SymbolRow[]);
     if (!rows.length) continue;
     const codeish = isCodeShaped(ident) || quotedSet.has(ident.toLowerCase());
+    if (!codeish && !lookup) continue;
     const idf = 1 / (1 + Math.log2(n));
     const shape = codeish ? 1 : 0.35;
     for (const s of rows) {
@@ -207,6 +261,7 @@ export function search(store: Store, q: string, opts: SearchOptions = {}): Searc
   //    than matching "request". Coverage of the symbol's own *name* counts for more than coverage of
   //    its fqn or signature, which inherit their words from the enclosing class.
   const idf = termIdf(store, terms);
+  const behavioural = isBehaviouralQuestion(q, terms.length);
   let idfTotal = 0;
   for (const t of terms) idfTotal += idf.get(t) ?? 0;
   // 4. importance and kind priors, test demotion
@@ -233,9 +288,10 @@ export function search(store: Store, q: string, opts: SearchOptions = {}): Searc
     }
     if (opts.kinds?.length && !opts.kinds.includes(s.kind)) continue;
     if (opts.path && !s.file.startsWith(opts.path)) continue;
-    const isTest = s.kind === 'test' || testFiles.has(s.file);
+    const isTest = s.kind === 'test' || isTestFile(s.file, testFiles);
     if (isTest && !opts.includeTests) h.score *= 0.35;
     h.score *= KIND_BOOST[s.kind] ?? 1;
+    if (behavioural) h.score *= QUESTION_KIND_BOOST[s.kind] ?? 1;
     // an `impl Bytes` / `extension HTTPHeader` block must rank behind the `struct Bytes` it reopens
     if (isReopenedBlock(s)) h.score *= 0.5;
     if (PERIPHERAL_PATH.test(s.file)) h.score *= 0.6;

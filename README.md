@@ -49,7 +49,7 @@ kinds, with the gold answer recorded as a symbol fqn:
 | Retrieval | recall@1 | recall@5 | found | MRR |
 |---|---|---|---|---|
 | lexical only (BM25 + PageRank) | 43.9 | 61.4 | 74.2 | 0.514 |
-| + semantic tier (`symbra embed`) | 45.5 | **68.9** | 80.3 | 0.556 |
+| + semantic tier (`symbra embed`) | 48.5 | **71.2** | 80.3 | 0.576 |
 
 The graph questions (`callers`, `impact`, `search`) already find the gold symbol in 100% of cases;
 the movement is in free-form `explore` questions, where recall@5 goes from 30.9 to 45.6. Full
@@ -198,7 +198,9 @@ opts in; on express it adds 1112 `variable` rows, growing the symbol count by 53
 
 35 languages (counting TypeScript/TSX as one and OCaml's `.ml`/`.mli` as one; 37 grammars are
 registered once those are split out). The core set ships with the package; the long tail downloads
-on first use — see [Install](#install).
+on first use — see [Install](#install). In monorepos, pnpm/npm workspace packages resolve by
+package name into their source (`@scope/pkg`, subpaths), and tsconfig/jsconfig `paths` are read
+from the nearest config up the tree, following `extends`.
 
 | Language | Definitions | Resolution |
 |---|---|---|

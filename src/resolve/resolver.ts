@@ -35,6 +35,9 @@ const BUILTINS: Record<string, Set<string>> = {
   python: new Set(['print', 'len', 'range', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'type', 'isinstance', 'issubclass', 'getattr', 'setattr', 'hasattr', 'super', 'object', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'reversed', 'min', 'max', 'sum', 'abs', 'any', 'all', 'open', 'iter', 'next', 'id', 'hash', 'repr', 'format', 'bytes', 'bytearray', 'callable', 'classmethod', 'staticmethod', 'property', 'vars', 'dir', 'globals', 'locals', 'input', 'round', 'divmod', 'pow', 'chr', 'ord', 'hex', 'oct', 'bin', 'frozenset', 'slice', 'memoryview', 'complex', 'Exception', 'BaseException', 'ValueError', 'TypeError', 'KeyError', 'IndexError', 'RuntimeError', 'AttributeError', 'NotImplementedError', 'StopIteration', 'OSError', 'IOError', 'ImportError', 'AssertionError', 'LookupError', 'ZeroDivisionError', 'NotImplemented', 'Ellipsis', 'None', 'True', 'False', 'self', 'cls', 'Optional', 'Union', 'Any', 'List', 'Dict', 'Set', 'Tuple', 'Callable', 'Iterable', 'Iterator', 'Generator', 'Awaitable', 'Coroutine', 'AsyncIterator', 'Type', 'TypeVar', 'Generic', 'Protocol', 'Literal', 'Final', 'ClassVar', 'Sequence', 'Mapping']),
   javascript: new Set(['require', 'console', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Symbol', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Date', 'RegExp', 'Error', 'TypeError', 'RangeError', 'SyntaxError', 'JSON', 'Math', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'setImmediate', 'queueMicrotask', 'process', 'Buffer', 'globalThis', 'window', 'document', 'fetch', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'Reflect', 'Proxy', 'Function', 'BigInt', 'Intl', 'structuredClone', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI', 'undefined', 'null', 'arguments', 'module', 'exports', '__dirname', '__filename', 'Infinity', 'NaN', 'AbortController', 'Event', 'EventTarget', 'Headers', 'Request', 'Response', 'Blob', 'FormData', 'Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'ArrayBuffer', 'DataView', 'SharedArrayBuffer', 'Atomics', 'WeakRef', 'FinalizationRegistry', 'Iterator', 'Partial', 'Required', 'Readonly', 'Record', 'Pick', 'Omit', 'Exclude', 'Extract', 'NonNullable', 'ReturnType', 'Parameters', 'InstanceType', 'Awaited', 'Promise', 'this', 'super', 'React', 'Symbol']),
 };
+// vitest/jest/mocha globals: injected by the test runner, never a definition in the repo. Without
+// them every `describe`/`expect` in the corpus becomes an ambiguous candidate set.
+for (const n of ['describe', 'it', 'test', 'expect', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'vi', 'jest', 'suite', 'bench']) BUILTINS.javascript!.add(n);
 BUILTINS.typescript = BUILTINS.javascript!;
 BUILTINS.ruby = new Set(['puts', 'print', 'p', 'pp', 'raise', 'require', 'require_relative', 'attr_reader', 'attr_writer', 'attr_accessor', 'include', 'extend', 'lambda', 'proc', 'loop', 'catch', 'throw', 'format', 'sprintf', 'Array', 'Hash', 'String', 'Integer', 'Float', 'Symbol', 'Proc', 'Struct', 'Class', 'Module', 'Object', 'Kernel', 'Comparable', 'Enumerable', 'Exception', 'StandardError', 'ArgumentError', 'RuntimeError', 'NotImplementedError', 'Time', 'Date', 'File', 'Dir', 'IO', 'JSON', 'YAML', 'ENV', 'Rails', 'ActiveRecord', 'ApplicationRecord', 'ApplicationController', 'RSpec', 'nil', 'true', 'false', 'self']);
 BUILTINS.php = new Set(['strlen', 'count', 'array_map', 'array_filter', 'array_keys', 'array_values', 'array_merge', 'in_array', 'implode', 'explode', 'str_replace', 'substr', 'strpos', 'sprintf', 'printf', 'json_encode', 'json_decode', 'is_array', 'is_string', 'is_null', 'isset', 'empty', 'unset', 'compact', 'extract', 'define', 'constant', 'intval', 'floatval', 'strval', 'trim', 'strtolower', 'strtoupper', 'ucfirst', 'preg_match', 'preg_replace', 'file_get_contents', 'file_put_contents', 'var_dump', 'print_r', 'die', 'exit', 'Exception', 'RuntimeException', 'InvalidArgumentException', 'LogicException', 'Throwable', 'Error', 'TypeError', 'Closure', 'Generator', 'ArrayAccess', 'Countable', 'Iterator', 'IteratorAggregate', 'Traversable', 'Stringable', 'JsonSerializable', 'DateTime', 'DateTimeImmutable', 'DateTimeInterface', 'stdClass', 'array', 'string', 'int', 'bool', 'float', 'mixed', 'void', 'null', 'self', 'static', 'parent']);
@@ -60,6 +63,15 @@ function familyOf(lang: string): string {
   if (lang === 'c' || lang === 'cpp') return 'c';
   return lang;
 }
+
+/**
+ * A reference that provably belongs to something outside the repo (a name imported from an
+ * unresolved package, a language builtin). Distinct from `null`, which means "nothing matched":
+ * an external name must not be turned into a candidate set, or every `writeFile` from
+ * `node:fs/promises` shows up as an ambiguous call.
+ */
+const EXTERNAL = { external: true } as const;
+type External = typeof EXTERNAL;
 
 interface Binding {
   kind: 'module' | 'symbol' | 'external';
@@ -698,7 +710,7 @@ export class Resolver {
     return { rows: [], viaClass: false };
   }
 
-  private resolveBare(name: string, scopeId: string, file: string, bindings: Map<string, Binding>, kind: ReferenceKind, lang: string, usings: string[] = []): Resolution | { candidates: SymbolRow[] } | null {
+  private resolveBare(name: string, scopeId: string, file: string, bindings: Map<string, Binding>, kind: ReferenceKind, lang: string, usings: string[] = []): Resolution | { candidates: SymbolRow[] } | External | null {
     const implicitSelf = IMPLICIT_SELF_LANGS.has(lang);
     let local = this.preferDefinitions(this.lookupScopeChain(name, scopeId, file, implicitSelf));
     if (local.length) return { ids: local.map((s) => s.id), resolver: 'scope', confidence: 1 };
@@ -715,7 +727,7 @@ export class Resolver {
     }
     const b = bindings.get(name);
     if (b) {
-      if (b.kind === 'external') return null;
+      if (b.kind === 'external') return EXTERNAL;
       if (b.kind === 'symbol' && b.ids?.length) return { ids: b.ids, resolver: 'import', confidence: 1 };
       if (b.kind === 'module' && b.file) {
         if (kind === 'call' || kind === 'new') {
@@ -725,7 +737,7 @@ export class Resolver {
         return { ids: [moduleId(b.file)], resolver: 'import', confidence: 1 };
       }
     }
-    if (BUILTINS[lang]?.has(name)) return null;
+    if (BUILTINS[lang]?.has(name)) return EXTERNAL;
     // namespace-qualified lookup: `using Acme.Models;` / enclosing `namespace Acme.Models` + `User`
     if (lang === 'csharp' || lang === 'cpp' || lang === 'c') {
       const ns = this.namespaceCandidates(scopeId, usings);
@@ -866,7 +878,7 @@ export class Resolver {
     return null;
   }
 
-  private resolveQualified(ref: RefRow, file: string, bindings: Map<string, Binding>, localTypes: LocalTypeRow[], lang: string): Resolution | { candidates: SymbolRow[] } | null {
+  private resolveQualified(ref: RefRow, file: string, bindings: Map<string, Binding>, localTypes: LocalTypeRow[], lang: string): Resolution | { candidates: SymbolRow[] } | External | null {
     const q = ref.qualifier;
     const name = ref.name;
     // self / this / cls / super
@@ -888,7 +900,7 @@ export class Resolver {
     }
     // module alias: `ns.func` / `pkg.sub.Class`
     const b = bindings.get(q) ?? bindings.get(q.split(/[.:]/)[0]!);
-    if (b?.kind === 'external') return null;
+    if (b?.kind === 'external') return EXTERNAL;
     if (b && bindings.has(q)) {
       if (b.kind === 'module' && b.file) {
         const hit = this.childrenOf(moduleId(b.file)).get(name);
@@ -1065,7 +1077,7 @@ export class Resolver {
         push(ref.scope, id, 'reads_config', ref.line, 'structural', 1);
         continue;
       }
-      let res: Resolution | { candidates: SymbolRow[] } | null;
+      let res: Resolution | { candidates: SymbolRow[] } | External | null;
       if (ref.qualifier) res = this.resolveQualified(ref, file, bindings, localTypes, langId);
       else res = this.resolveBare(ref.name, ref.scope, file, bindings, ref.kind, langId, usings);
       if (!res) {
@@ -1079,6 +1091,8 @@ export class Resolver {
         }
         continue;
       }
+      // Resolved, but to something outside the repo: no edge, and no candidate set either.
+      if ('external' in res) continue;
       if ('candidates' in res) {
         if (ref.kind === 'call' || ref.kind === 'new' || ref.kind === 'extends' || ref.kind === 'implements') unresolved.push({ line: ref.line, scope: ref.scope, kind: ref.kind, name: ref.name, qualifier: ref.qualifier, candidates: res.candidates.map((s) => s.id) });
         continue;
